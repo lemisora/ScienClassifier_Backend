@@ -1,4 +1,55 @@
-version: '3'
-
 services:
-  
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.29
+    container_name: etcd_sc
+    command:
+      - /usr/local/bin/etcd
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+    
+    networks:
+      - red_distribuida
+
+  patroni:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    container_name: patroni_sc
+    hostname: patroni_psql
+
+    environment:
+      # PGDATA: /var/lib/postgresql/data/pgdata
+      # POSTGRES_USER: postgres
+      # POSTGRES_PASSWORD: postgres
+      # POSTGRES_DB: postgres
+      SCOPE: postgres_cluster
+      ETCD3_HOST: etcd:2379
+      # Variables específicas de Patroni para contraseñas
+      # PATRONI_SUPERUSER_PASSWORD: postgres
+
+    ports:
+      - 5432:5432
+      - 8008:8008
+    volumes:
+      - patroni_data:/var/lib/postgresql/data
+    networks:
+      - red_distribuida
+    depends_on:
+      - etcd
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx_sc
+    ports:
+      - 8080:80
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - red_distribuida
+    depends_on:
+      - patroni
+
+volumes:
+  patroni_data:
+
+networks:
+  red_distribuida:
+    driver: bridge
