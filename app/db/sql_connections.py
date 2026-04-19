@@ -39,7 +39,6 @@ class Document(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     filename = Column(String(255), nullable=False)
     object_key = Column(String(512), nullable=False)
-    category = Column(String(128), nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
     # Campos para APA7
@@ -49,6 +48,18 @@ class Document(Base):
     journal = Column(String(256), nullable=True)
 
     owner = relationship("User", back_populates="documents")
+    categories = relationship("DocumentCategory", back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentCategory(Base):
+    __tablename__ = "document_categories"
+
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    category = Column(String(128), nullable=False)
+    score = Column(Integer, nullable=False)  # 0-100 (porcentaje)
+
+    document = relationship("Document", back_populates="categories")
 
 
 def create_tables() -> None:
