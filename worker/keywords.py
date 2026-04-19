@@ -17,18 +17,22 @@ CATEGORIES: dict[str, list[str]] = {
     ],
 
     "física": [
-        # español
-        "energía", "fuerza", "velocidad", "masa", "campo", "partícula",
-        "onda", "frecuencia", "longitud de onda", "electrón", "fotón",
-        "relatividad", "gravedad", "termodinámica", "entropía", "presión",
-        "temperatura", "magnetismo", "electricidad", "circuito", "colisión",
-        "momento", "aceleración", "átomo", "núcleo", "radiación", "plasma",
+        # español — términos específicos de física, evitar genéricos
+        "velocidad", "masa", "partícula", "onda", "longitud de onda",
+        "electrón", "fotón", "relatividad", "gravedad", "termodinámica",
+        "entropía", "magnetismo", "colisión", "momento angular", "aceleración",
+        "átomo", "núcleo atómico", "plasma", "mecánica cuántica", "óptica",
+        "electromagnetismo", "fuerza gravitacional", "campo eléctrico",
+        "campo magnético", "mecánica clásica", "astrofísica", "cosmología",
+        "espectro", "difracción", "refracción", "conductividad", "resistividad",
         # inglés / mixto
-        "energy", "force", "velocity", "mass", "field", "particle",
-        "wave", "frequency", "electron", "photon", "relativity", "gravity",
-        "thermodynamics", "entropy", "pressure", "magnetism", "quantum",
-        "momentum", "acceleration", "nucleus", "radiation", "laser",
-        "superconductor", "Higgs boson", "dark matter", "string theory",
+        "velocity", "mass", "particle", "wave", "electron", "photon",
+        "relativity", "gravity", "thermodynamics", "entropy", "magnetism",
+        "quantum mechanics", "quantum", "momentum", "acceleration",
+        "nucleus", "laser", "superconductor", "Higgs boson", "dark matter",
+        "string theory", "electromagnetic", "astrophysics", "cosmology",
+        "diffraction", "refraction", "conductivity", "resistivity",
+        "Newtonian", "Hamiltonian", "Lagrangian", "Schrödinger",
     ],
 
     "química": [
@@ -100,12 +104,20 @@ CATEGORIES: dict[str, list[str]] = {
         "infección", "cáncer", "tumor", "tejido", "órgano", "sangre",
         "presión arterial", "glucosa", "epidemiología", "ensayo clínico",
         "placebo", "resonancia", "tomografía", "ultrasonido", "biopsia",
+        "salud", "clínica", "médico", "hospital", "estrés", "ansiedad",
+        "depresión", "psiquiatría", "psicología", "trastorno", "bienestar",
+        "rehabilitación", "neurología", "cardiología", "inmunología",
+        "biomédico", "biomarker", "muestra", "sujeto", "participante",
         # inglés / mixto
         "disease", "diagnosis", "treatment", "patient", "symptom",
         "drug", "dosage", "surgery", "therapy", "vaccine", "antibody",
         "infection", "cancer", "tumor", "blood", "clinical trial",
         "placebo", "MRI", "CT scan", "biopsy", "mortality", "morbidity",
         "randomized", "double-blind", "biomarker", "pathology",
+        "stress", "coping", "mental health", "anxiety", "depression",
+        "psychiatric", "psychological", "wellbeing", "health", "nurse",
+        "physician", "hospital", "subjects", "participants", "cohort",
+        "biomedical", "neurology", "cardiology", "immunology", "chronic",
     ],
 
     "ciencias sociales": [
@@ -115,12 +127,18 @@ CATEGORIES: dict[str, list[str]] = {
         "entrevista", "etnografía", "discurso", "identidad", "género",
         "desigualdad", "migración", "globalización", "democracia",
         "institución", "mercado", "pobreza", "bienestar", "conflicto",
+        "comunidad", "grupo", "percepción", "actitud", "motivación",
+        "aprendizaje", "docente", "estudiante", "organización", "liderazgo",
+        "trabajo", "empleo", "familia", "religión", "historia", "filosofía",
         # inglés / mixto
         "society", "culture", "economy", "politics", "law", "education",
         "psychology", "behavior", "population", "survey", "interview",
         "ethnography", "discourse", "identity", "gender", "inequality",
         "migration", "globalization", "democracy", "market", "poverty",
         "welfare", "qualitative", "quantitative", "regression analysis",
+        "community", "perception", "attitude", "motivation", "learning",
+        "organization", "leadership", "team", "social", "human", "group",
+        "isolated", "extreme environment", "expedition", "crew", "mission",
     ],
 }
 

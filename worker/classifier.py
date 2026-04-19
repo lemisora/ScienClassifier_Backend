@@ -7,6 +7,10 @@ import numpy as np
 from worker.keywords import CATEGORIES, SCORE_THRESHOLD
 
 
+def _strip_cid(text: str) -> str:
+    return re.sub(r"\(cid:\d+\)", "", text)
+
+
 def classify(text: str) -> dict:
     """
     Clasifica el texto de un PDF usando TF-IDF contra las keywords por categoría.
@@ -19,6 +23,7 @@ def classify(text: str) -> dict:
         "year":    int | None,
     }
     """
+    text = _strip_cid(text)
     clean = _clean_text(text)
     scores = _score_categories(clean)
     filtered = {cat: round(score, 4) for cat, score in scores.items() if score >= SCORE_THRESHOLD}
@@ -37,6 +42,9 @@ def classify(text: str) -> dict:
 
 
 def _clean_text(text: str) -> str:
+    # Eliminar artefactos CID de PDFs mal codificados: (cid:123)
+    text = re.sub(r"\(cid:\d+\)", "", text)
+    # Eliminar caracteres no alfabéticos excepto letras con acento
     text = text.lower()
     text = re.sub(r"[^a-záéíóúüñàâèêîôùûçäöü\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -76,16 +84,43 @@ def _extract_title(text: str) -> str | None:
     return lines[0] if lines else None
 
 
+_AUTHOR_NOISE = re.compile(
+    r"universidad|instituto|facultad|departamento|dedicatoria|agradec|"
+    r"amor|dios|familia|abstract|resumen|introduccion|keywords|copyright|"
+    r"cuando|donde|aunque|sobre|para|durante|mientras|porque",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_names(text: str) -> bool:
+    """Verdadero si el texto parece una lista de nombres propios."""
+    if re.search(r"@|\bhttp\b|\.com\b|\.org\b", text):
+        return False
+    if len(text) > 120:
+        return False
+    if _AUTHOR_NOISE.search(text):
+        return False
+    # Debe tener al menos una palabra que empiece con mayúscula y tenga letras
+    return bool(re.search(r"[A-ZÁÉÍÓÚ][a-záéíóúA-ZÁÉÍÓÚ]{2,}", text))
+
+
 def _extract_authors(text: str) -> str | None:
-    # Busca patrones comunes: "Autor1, Autor2" o líneas con múltiples nombres propios
     patterns = [
         r"(?:authors?|autores?)[:\s]+([^\n]{5,120})",
-        r"(?:by|por)[:\s]+([^\n]{5,120})",
     ]
     for pattern in patterns:
         match = re.search(pattern, text[:2000], re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            candidate = match.group(1).strip()
+            if _looks_like_names(candidate):
+                return candidate
+
+    # Fallback: líneas con nombres propios en las primeras 10 líneas no vacías
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    for line in lines[1:10]:
+        if (re.match(r"^[A-ZÁÉÍÓÚ][a-záéíóú]{2,}[\s,]+[A-ZÁÉÍÓÚ]", line)
+                and _looks_like_names(line)):
+            return line
     return None
 
 
