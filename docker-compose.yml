@@ -4,8 +4,8 @@ services:
     container_name: etcd_sc
     command:
       - /usr/local/bin/etcd
-      - --advertise-client-urls=http://etcd:2379
-      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://${ETCD3_HOST}
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
     
     networks:
       - red_distribuida
@@ -16,20 +16,20 @@ services:
     hostname: patroni_psql
 
     environment:
-      # PGDATA: /var/lib/postgresql/data/pgdata
-      # POSTGRES_USER: postgres
-      # POSTGRES_PASSWORD: postgres
-      # POSTGRES_DB: postgres
-      SCOPE: postgres_cluster
-      ETCD3_HOST: etcd:2379
-      # Variables específicas de Patroni para contraseñas
-      # PATRONI_SUPERUSER_PASSWORD: postgres
+      - SCOPE
+      - ETCD3_HOST
+      - ALLOW_NOSSL=true
+      - PGROOT
+      - PGUSER_STANDBY
+      - PGPASSWORD_STANDBY
+      - PGUSER_ADMIN
+      - PGPASSWORD_ADMIN
 
     ports:
       - 5432:5432
       - 8008:8008
     volumes:
-      - patroni_data:/var/lib/postgresql/data
+      - patroni_data:${PGROOT}/data
     networks:
       - red_distribuida
     depends_on:
@@ -49,6 +49,7 @@ services:
 
 volumes:
   patroni_data:
+    name: patroni_data
 
 networks:
   red_distribuida:
