@@ -1,143 +1,192 @@
 # ScienClassifier (Backend)
 
-Este repositorio contiene el backend de un sistema de almacenamiento distribuido orientado al análisis de artículos científicos.
+Backend del sistema distribuido de almacenamiento y análisis de artículos científicos.
+Arquitectura simétrica de 3 nodos orquestada con **Docker Swarm**.
 
-## Descripción General
+## Estado actual
 
-El sistema utiliza una arquitectura de microservicios **simétrica**: las 3 máquinas del clúster corren exactamente los mismos servicios. No hay nodo especial ni punto único de falla. La orquestación se hace con **Docker Swarm** usando un único `stack.yml` desplegado desde cualquier manager.
+| Componente | Estado |
+|------------|--------|
+| `stack.yml` Docker Swarm | ✅ completo |
+| MinIO cluster (3×2 drives) | ✅ implementado y probado |
+| FastAPI — auth (registro/login JWT) | ✅ |
+| FastAPI — subida/descarga/eliminación de PDFs | ✅ |
+| FastAPI — generación de citas APA7 | ✅ |
+| FastAPI — endpoints de admin | ✅ |
+| RabbitMQ — productor (enqueue) | ✅ |
+| PostgreSQL — modelos User + Document | ✅ |
+| Worker — consumidor RabbitMQ | 🔄 pendiente |
+| Worker — clasificador TF-IDF | 🔄 pendiente |
+| Frontend Angular | 🔄 pendiente |
+| Dockerfile FastAPI + Worker | 🔄 pendiente |
 
-## Estructura del Proyecto
+---
+
+## Flujo de datos
+
+### Subida de PDF
+
+```mermaid
+sequenceDiagram
+    actor U as Usuario
+    participant NG as Nginx
+    participant FA as FastAPI
+    participant PG as PostgreSQL
+    participant MN as MinIO cluster
+    participant RB as RabbitMQ
+    participant WK as Worker
+
+    U->>NG: POST /api/documents (PDF)
+    NG->>FA: proxy request
+    FA->>MN: upload_pdf() → object_key
+    MN-->>FA: OK
+    FA->>PG: INSERT document (filename, object_key)
+    PG-->>FA: doc.id
+    FA->>RB: enqueue_pdf(doc.id, object_key)
+    FA-->>U: 201 { id, filename, object_key }
+
+    RB-->>WK: consume mensaje
+    WK->>MN: get_object(object_key)
+    MN-->>WK: bytes del PDF
+    WK->>WK: TF-IDF classify()
+    WK->>PG: UPDATE document SET category, title, authors...
+```
+
+### Descarga de PDF
+
+```mermaid
+sequenceDiagram
+    actor U as Usuario
+    participant NG as Nginx
+    participant FA as FastAPI
+    participant PG as PostgreSQL
+    participant MN as MinIO cluster
+
+    U->>NG: GET /api/documents/{id}/download
+    NG->>FA: proxy (JWT en header)
+    FA->>FA: verificar JWT → user_id
+    FA->>PG: SELECT document WHERE id AND user_id
+    PG-->>FA: object_key
+    FA->>MN: presigned_get_object(object_key, 1h)
+    MN-->>FA: URL firmada temporal
+    FA-->>U: 302 Redirect → URL firmada
+    U->>MN: GET URL firmada (directo)
+    MN-->>U: bytes del PDF
+```
+
+### Clasificación asíncrona (Worker)
+
+```mermaid
+flowchart LR
+    RB[(RabbitMQ\ncola pdf_processing)]
+    MN[(MinIO\ncluster)]
+    PG[(PostgreSQL\nPatroni)]
+
+    RB -->|doc_id + object_key| WK[Worker]
+    WK -->|get_object| MN
+    MN -->|bytes PDF| WK
+    WK -->|extraer texto + TF-IDF| CL[Clasificador]
+    CL -->|categoría + keywords| WK
+    WK -->|UPDATE document| PG
+```
+
+---
+
+## Estructura del proyecto
 
 ```
 ScienClassifier_Backend/
-├── docker-compose.yml        # Orquestación de contenedores Docker
-├── main.py                   # Punto de entrada principal para la API de la aplicación
-├── requirements.txt          # Dependencias de Python
-├── LICENSE                   # Licencia del proyecto (aún por definir)
-├── app/                      # Aplicación principal (API FastAPI)
-│   ├── api/                  # Definición de endpoints de la API
-│   │   └── endpoints.py      # Rutas y controladores de la API
-│   ├── core/                 # Funcionalidades centrales del sistema
-│   │   └── jwt_connections.py # Gestión de autenticación JWT
-│   ├── db/                   # Configuración de base de datos
-│   │   └── sql_connections.py # Conexiones y modelos SQL
-│   └── services/             # Servicios externos integrados
-│       ├── minio_connection.py   # Cliente para almacenamiento de objetos (MinIO/S3)
-│       └── rabbitmq_connection.py # Productor de mensajes para cola RabbitMQ
-├── worker/                   # Procesamiento asíncrono de artículos
-│   ├── classifier.py         # Lógica de clasificación de artículos
-│   └── rbmq_consumer.py      # Consumidor de mensajes desde RabbitMQ
-└── nginx/                    # Configuración del servidor HTTP
-    └── nginx.conf            # Configuración de proxy reverso y balanceador de carga
+├── stack.yml                     # Stack Docker Swarm — todos los servicios
+├── main.py                       # Entrypoint FastAPI (lifespan: crea tablas + bucket)
+├── requirements.txt              # Dependencias Python
+├── app/
+│   ├── api/
+│   │   └── endpoints.py          # 12 endpoints REST
+│   ├── core/
+│   │   └── jwt_connections.py    # bcrypt + JWT sign/decode + dependencias FastAPI
+│   ├── db/
+│   │   └── sql_connections.py    # Modelos SQLAlchemy: User, Document
+│   └── services/
+│       ├── minio_connection.py   # upload, download (presigned), delete, delete batch
+│       └── rabbitmq_connection.py # enqueue_pdf → cola pdf_processing
+├── worker/
+│   ├── classifier.py             # TF-IDF (pendiente)
+│   └── rbmq_consumer.py          # Consumidor RabbitMQ (pendiente)
+├── nginx/
+│   └── nginx.conf                # Sirve Angular en / + proxea /api/ a FastAPI
+├── rabbitmq/
+│   └── rabbitmq.conf             # Peer discovery clásico para cluster de 3 nodos
+└── tests/
+    └── docker-compose.minio-test.yml  # Prueba local del cluster MinIO
 ```
 
-## Componentes
+---
 
-### `app/` - Aplicación Principal
-Contiene la API REST desarrollada con FastAPI que expone los endpoints para:
-- Gestión de artículos científicos
-- Autenticación de usuarios mediante JWT
-- Operaciones de almacenamiento y recuperación de archivos
+## API — Endpoints
 
-### `app/api/endpoints.py`
-Define las rutas HTTP disponibles y los controladores que procesan las solicitudes de los clientes.
+### Auth
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/api/auth/register` | Registro de usuario |
+| `POST` | `/api/auth/login` | Login → JWT |
 
-### `app/core/jwt_connections.py`
-Módulo encargado de la autenticación y autorización mediante tokens JWT (JSON Web Tokens).
+### Documentos (requiere JWT)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/api/documents` | Subir PDF |
+| `GET` | `/api/documents` | Listar documentos propios |
+| `GET` | `/api/documents/{id}/download` | Descargar PDF (redirect a presigned URL) |
+| `DELETE` | `/api/documents/{id}` | Eliminar un documento |
+| `POST` | `/api/documents/delete-batch` | Eliminar múltiples documentos |
+| `POST` | `/api/documents/apa7` | Generar citas APA7 |
 
-### `app/db/sql_connections.py`
-Gestiona las conexiones a la base de datos SQL, incluyendo modelos de datos y operaciones CRUD.
+### Admin (requiere JWT con rol admin)
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `GET` | `/api/admin/users` | Listar todos los usuarios |
+| `DELETE` | `/api/admin/users/{id}` | Eliminar usuario (y sus documentos) |
+| `PATCH` | `/api/admin/users/{id}` | Modificar username/contraseña |
+| `DELETE` | `/api/admin/documents/{id}` | Eliminar documento de cualquier usuario |
 
-### `app/services/`
-Integraciones con servicios externos:
+---
 
-- **minio_connection.py**: Cliente para MinIO (almacenamiento de objetos compatible con S3)
-- **rabbitmq_connection.py**: Productor de mensajes para enviar tareas de procesamiento a la cola
+## Tecnologías
 
-### `worker/` - Workers de Procesamiento
-Componentes para el procesamiento asíncrono:
+- **Python 3.x** + **FastAPI** — API REST
+- **SQLAlchemy** + **PostgreSQL** — persistencia (via Patroni + etcd)
+- **MinIO** — almacenamiento de objetos distribuido (erasure coding 3+3)
+- **RabbitMQ** — cola de mensajes para procesamiento asíncrono
+- **Docker Swarm** — orquestación multi-nodo
+- **Nginx** — punto de entrada unificado (Angular + proxy API)
+- **JWT** + **bcrypt** — autenticación stateless
+- **Tailscale** — red overlay para demo
 
-- **classifier.py**: Implementa la lógica de clasificación de artículos científicos
-- **rbmq_consumer.py**: Escucha la cola de mensajes y procesa las tareas enviadas por la API
-
-### `nginx/`
-Configuración del servidor nginx para que funja como:
-- Proxy reverso para la API
-- Balanceador de carga
-- Terminal SSL (HTTPS)
-
-### `docker-compose.yml`
-Orquestación de todos los contenedores Docker:
-- Contenedor de la API FastAPI
-- Contenedor del worker
-- Contenedor de nginx
-- Contenedor de MinIO
-- Contenedor de RabbitMQ
-- Contenedor de la base de datos PostgreSQL
-
-## Tecnologías Utilizadas
-
-- **Python 3.x**: Lenguaje principal
-- **FastAPI**: Framework web de alto rendimiento
-- **Docker Swarm**: Orquestación multi-nodo (reemplaza Docker Compose)
-- **Nginx**: Sirve el frontend Angular compilado + hace proxy de `/api` a FastAPI
-- **RabbitMQ**: Cluster de mensajería asíncrona (3 nodos)
-- **MinIO**: Almacenamiento de objetos distribuido (3 nodos × 2 drives)
-- **PostgreSQL + Patroni + etcd**: Base de datos con alta disponibilidad y elección de líder automática
-- **JWT**: Autenticación stateless
-- **Tailscale**: Red overlay para la demo entre equipos
-
-## Decisiones de arquitectura
-
-### Arquitectura simétrica
-
-Cada nodo corre: Nginx, FastAPI, Worker, Patroni+PostgreSQL, etcd, RabbitMQ, MinIO. No hay nodo "maestro" a nivel de infraestructura — la elección de líder la manejan Patroni y etcd internamente.
-
-### MinIO distribuido
-
-- **3 nodos × 2 drives = 6 drives totales**
-- MinIO aplica erasure coding: 3 fragmentos de datos + 3 de paridad
-- Tolera perder un nodo completo (2 drives) sin pérdida de datos
-- Cada instancia se **fija a su nodo** con `placement constraints` en Swarm para que los datos no migren
-
-### Nginx como punto de entrada unificado
-
-```
-Usuario → Nginx → /          → Angular (archivos estáticos compilados)
-               → /api/...   → FastAPI (round-robin entre los 3 nodos)
-```
-
-Un solo puerto expuesto al usuario. No hay distinción visible entre frontend y backend.
-
-### Swarm: stateful vs stateless
-
-| Tipo | Servicios | Estrategia Swarm |
-|------|-----------|-----------------|
-| Stateful | MinIO, Patroni, etcd | `placement constraints` fijos por nodo |
-| Stateless | FastAPI, Worker, Nginx | `mode: global` (una instancia por nodo) |
-
-### Red
-
-- **Pruebas**: IPs locales (LAN)
-- **Demo**: Tailscale — `docker swarm init --advertise-addr <IP_TAILSCALE>` en el manager inicial; los otros nodos hacen join con la IP Tailscale correspondiente
+---
 
 ## Despliegue
 
-### Inicializar el Swarm (solo una vez, desde máquina 1)
+### 1. Inicializar el Swarm (desde máquina 1)
 
 ```bash
 docker swarm init --advertise-addr <IP_MAQUINA1>
-# Guardar el token que imprime para unir los otros nodos
+# Guardar el token que imprime
 ```
 
-### Unir las otras máquinas
+### 2. Unir las otras máquinas
 
 ```bash
 # En máquina 2 y 3
 docker swarm join --token <TOKEN> <IP_MAQUINA1>:2377
 ```
 
-### Etiquetar los nodos (necesario para los placement constraints)
+### 3. Promover a managers (para HA del Swarm)
+
+```bash
+docker node promote <NODE_ID_2>
+docker node promote <NODE_ID_3>
+```
+
+### 4. Etiquetar los nodos
 
 ```bash
 docker node update --label-add name=maquina1 <NODE_ID_1>
@@ -145,19 +194,37 @@ docker node update --label-add name=maquina2 <NODE_ID_2>
 docker node update --label-add name=maquina3 <NODE_ID_3>
 ```
 
-### Desplegar el stack
+### 5. Configurar variables de entorno
 
 ```bash
-docker stack deploy -c stack.yml pda
+cp .env.example .env
+# Editar .env con las IPs reales y contraseñas seguras
 ```
 
-### Verificar estado
+### 6. Desplegar
+
+```bash
+export $(cat .env | xargs) && docker stack deploy -c stack.yml pda
+```
+
+### 7. Verificar
 
 ```bash
 docker stack services pda
 docker service ps pda_minio1
+curl http://localhost:9000/minio/health/cluster
 ```
 
-## Requisitos
+---
 
-Ver `requirements.txt` para las dependencias de Python necesarias.
+## Pruebas locales de MinIO
+
+Para probar el cluster MinIO sin Swarm en una sola máquina:
+
+```bash
+docker compose -f tests/docker-compose.minio-test.yml up -d
+# Esperar ~30s y verificar:
+curl http://localhost:9000/minio/health/cluster
+# Consola web: http://localhost:9001 (minioadmin / minioadmin123)
+docker compose -f tests/docker-compose.minio-test.yml down -v
+```
