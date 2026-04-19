@@ -18,8 +18,6 @@
 # NOTA: depends_on es ignorado por Swarm. Los servicios deben tener
 #       lógica de reintento para conectarse a sus dependencias.
 
-version: "3.8"
-
 services:
 
   # ================================================================
@@ -182,12 +180,7 @@ services:
 
   minio1:
     image: minio/minio:latest
-    command: >
-      server
-      http://minio1/data{1...2}
-      http://minio2/data{1...2}
-      http://minio3/data{1...2}
-      --console-address ":9001"
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -213,12 +206,7 @@ services:
 
   minio2:
     image: minio/minio:latest
-    command: >
-      server
-      http://minio1/data{1...2}
-      http://minio2/data{1...2}
-      http://minio3/data{1...2}
-      --console-address ":9001"
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -244,12 +232,7 @@ services:
 
   minio3:
     image: minio/minio:latest
-    command: >
-      server
-      http://minio1/data{1...2}
-      http://minio2/data{1...2}
-      http://minio3/data{1...2}
-      --console-address ":9001"
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}

@@ -1,0 +1,86 @@
+# Prueba local del cluster MinIO distribuido (3 nodos × 2 drives)
+# Simula la config del stack.yml en una sola máquina.
+#
+# Uso:
+#   docker compose -f tests/docker-compose.minio-test.yml up
+#
+# Verificar cluster:
+#   curl http://localhost:9000/minio/health/cluster
+#
+# Consola web: http://localhost:9001 (usuario: minioadmin / pass: minioadmin123)
+
+services:
+  minio1:
+    image: minio/minio:latest
+    container_name: minio1_test
+    hostname: minio1
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio1_data1:/data1
+      - minio1_data2:/data2
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - minio_test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  minio2:
+    image: minio/minio:latest
+    container_name: minio2_test
+    hostname: minio2
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio2_data1:/data1
+      - minio2_data2:/data2
+    networks:
+      - minio_test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  minio3:
+    image: minio/minio:latest
+    container_name: minio3_test
+    hostname: minio3
+    command: server http://minio{1...3}/data{1...2} --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio3_data1:/data1
+      - minio3_data2:/data2
+    networks:
+      - minio_test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  minio1_data1:
+  minio1_data2:
+  minio2_data1:
+  minio2_data2:
+  minio3_data1:
+  minio3_data2:
+
+networks:
+  minio_test:
+    driver: bridge
