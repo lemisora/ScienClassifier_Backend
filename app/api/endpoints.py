@@ -18,6 +18,7 @@ from app.services.minio_connection import (
     get_presigned_url,
     upload_pdf,
 )
+from app.services.pdf_validator import validate_pdf
 from app.services.rabbitmq_connection import enqueue_pdf
 
 router = APIRouter()
@@ -104,6 +105,7 @@ def upload_document(
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
 
     data = file.file.read()
+    validate_pdf(data)
     object_key = upload_pdf(user_id=user_id, filename=file.filename, data=data)
 
     doc = Document(user_id=user_id, filename=file.filename, object_key=object_key)
