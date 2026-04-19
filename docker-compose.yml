@@ -1,0 +1,59 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.29
+    container_name: etcd_sc
+    command:
+      - /usr/local/bin/etcd
+      - --advertise-client-urls=http://${ETCD3_HOST}
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
+    
+    networks:
+      - red_distribuida
+
+  patroni:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    container_name: patroni_sc
+    hostname: patroni_psql
+
+    environment:
+      - SCOPE
+      - ETCD3_HOST
+      - ALLOW_NOSSL=true
+      - PGROOT
+      - PGUSER_SUPERUSER
+      - PGPASSWORD_SUPERUSER
+      - PGUSER_STANDBY
+      - PGPASSWORD_STANDBY
+      - PGUSER_ADMIN
+      - USE_ADMIN
+      - PGPASSWORD_ADMIN
+
+    ports:
+      - 5432:5432
+      - 8008:8008
+    volumes:
+      - patroni_data:${PGROOT}/data
+    networks:
+      - red_distribuida
+    depends_on:
+      - etcd
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx_sc
+    ports:
+      - 8080:80
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - red_distribuida
+    depends_on:
+      - patroni
+
+volumes:
+  patroni_data:
+    name: patroni_data
+
+networks:
+  red_distribuida:
+    driver: bridge
