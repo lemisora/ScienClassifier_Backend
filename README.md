@@ -15,6 +15,7 @@ Arquitectura simétrica de 3 nodos orquestada con **Docker Swarm**.
 | FastAPI — endpoints de admin | ✅ |
 | RabbitMQ — productor (enqueue) | ✅ |
 | PostgreSQL — modelos User + Document | ✅ |
+| Validación PDF (magic number + texto extraíble + idioma) | 🔄 pendiente |
 | Worker — consumidor RabbitMQ | 🔄 pendiente |
 | Worker — clasificador TF-IDF | 🔄 pendiente |
 | Frontend Angular | 🔄 pendiente |
@@ -119,6 +120,33 @@ ScienClassifier_Backend/
 └── tests/
     └── docker-compose.minio-test.yml  # Prueba local del cluster MinIO
 ```
+
+---
+
+## Validación de PDFs
+
+El endpoint `POST /api/documents` aplica tres checks en orden antes de subir a MinIO:
+
+```mermaid
+flowchart TD
+    A[Recibe archivo] --> B{Magic number\n%PDF-?}
+    B -->|No| R1[400 No es un PDF válido]
+    B -->|Sí| C{pdfplumber\nextrae texto?}
+    C -->|No / vacío| R2[400 PDF sin texto extraíble\nno se aceptan escaneados]
+    C -->|Sí| D{langdetect\nes 'es' o 'en'?}
+    D -->|Otro idioma| R3[400 Solo se aceptan artículos\nen español o inglés]
+    D -->|es / en| E[✅ Subir a MinIO\nenqueue RabbitMQ]
+```
+
+| Check | Librería | Rechaza si |
+|-------|----------|------------|
+| Es un PDF real | bytes nativos | No empieza con `%PDF-` |
+| Tiene texto extraíble | `pdfplumber` | PDF de imágenes / escaneado |
+| Idioma válido | `langdetect` | Idioma distinto a `es` o `en` |
+
+> **Frontend**: puede pre-validar extensión, `content-type` y tamaño para dar feedback inmediato, pero no reemplaza la validación del backend.
+
+> **Limitación de idioma**: el sistema solo acepta artículos científicos en **español** e **inglés**.
 
 ---
 
