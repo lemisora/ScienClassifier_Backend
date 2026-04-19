@@ -9,3 +9,5 @@ passlib[bcrypt]
 python-multipart
 pdfplumber
 langdetect
+scikit-learn
+numpy

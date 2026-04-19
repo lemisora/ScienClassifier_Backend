@@ -15,9 +15,11 @@ Arquitectura simétrica de 3 nodos orquestada con **Docker Swarm**.
 | FastAPI — endpoints de admin | ✅ |
 | RabbitMQ — productor (enqueue) | ✅ |
 | PostgreSQL — modelos User + Document | ✅ |
-| Validación PDF (magic number + texto extraíble + idioma) | 🔄 pendiente |
-| Worker — consumidor RabbitMQ | 🔄 pendiente |
-| Worker — clasificador TF-IDF | 🔄 pendiente |
+| Validación PDF (magic number + texto extraíble + idioma) | ✅ probado con artículos reales |
+| Worker — clasificador TF-IDF (8 categorías, umbral 20%) | ✅ probado con artículos reales |
+| Worker — consumidor RabbitMQ | ✅ |
+| PostgreSQL — tabla `document_categories` (score por categoría) | ✅ |
+| `GET /api/documents` con categorías incluidas | 🔄 pendiente |
 | Frontend Angular | 🔄 pendiente |
 | Dockerfile FastAPI + Worker | 🔄 pendiente |
 
@@ -111,8 +113,9 @@ ScienClassifier_Backend/
 │       ├── minio_connection.py   # upload, download (presigned), delete, delete batch
 │       └── rabbitmq_connection.py # enqueue_pdf → cola pdf_processing
 ├── worker/
-│   ├── classifier.py             # TF-IDF (pendiente)
-│   └── rbmq_consumer.py          # Consumidor RabbitMQ (pendiente)
+│   ├── keywords.py               # 8 categorías × ~45 keywords es/en
+│   ├── classifier.py             # TF-IDF + cosine similarity + extracción de metadatos
+│   └── rbmq_consumer.py          # Consume cola pdf_processing → clasifica → guarda en DB
 ├── nginx/
 │   └── nginx.conf                # Sirve Angular en / + proxea /api/ a FastAPI
 ├── rabbitmq/
@@ -120,6 +123,52 @@ ScienClassifier_Backend/
 └── tests/
     └── docker-compose.minio-test.yml  # Prueba local del cluster MinIO
 ```
+
+---
+
+## Clasificador de artículos
+
+### Categorías disponibles (8)
+
+| Categoría | Ejemplos de keywords |
+|-----------|---------------------|
+| matemáticas | ecuación, integral, álgebra, teorema, matrix, calculus |
+| física | electrón, mecánica cuántica, relatividad, astrofísica, quantum |
+| química | molécula, catalizador, síntesis, espectroscopia, polymer |
+| biología | célula, ADN, evolución, CRISPR, proteína, genome |
+| computación | algoritmo, machine learning, neural network, dataset, API |
+| ingeniería | diseño, automatización, robótica, sensor, CAD, PLC |
+| medicina | diagnóstico, ensayo clínico, paciente, stress, biomarker |
+| ciencias sociales | sociedad, encuesta, psicología, identidad, team, survey |
+
+### Funcionamiento
+
+1. El texto del PDF se limpia (minúsculas, sin caracteres especiales, sin artefactos CID)
+2. TF-IDF calcula la similitud coseno entre el artículo y las keywords de cada categoría
+3. Los scores se normalizan a 0–100%
+4. Solo se devuelven las categorías con **score ≥ 20%** (umbral configurable en `keywords.py`)
+
+Un artículo puede pertenecer a varias categorías — por ejemplo un paper sobre la capa de ozono puede mostrar química 42% + física 31% + matemáticas 18%.
+
+### Metadatos extraídos automáticamente
+
+| Campo | Método |
+|-------|--------|
+| Título | Primera línea significativa (>20 chars, sin año) |
+| Autores | Regex sobre patrones `Authors:` / `Autores:` + fallback por nombres propios |
+| Año | Primer año entre 1900–2099 en las primeras 500 chars |
+
+> Los metadatos son aproximados y mejoran con artículos bien formateados. Se usan para generar citas APA7.
+
+### Resultados con artículos reales de prueba
+
+| Artículo | Categorías detectadas |
+|----------|-----------------------|
+| Stress and Coping (Mars mission) | ciencias sociales 100%, medicina 31% |
+| Reconocimiento capas internas Tierra | física 100%, computación 81% |
+| Computación cuántica | computación 100%, física 88% |
+| Tesis SILI (La Plata) | computación 100%, física 89% |
+| Artículo COVID-19 | computación 100%, física 88%, medicina 67% |
 
 ---
 

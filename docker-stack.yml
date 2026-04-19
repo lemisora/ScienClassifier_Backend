@@ -1,29 +1,20 @@
-# Docker Swarm Stack — Sistema Distribuido de Análisis de Artículos Científicos
+# Docker Swarm Stack — ScienClassifier
 #
 # ANTES DE DESPLEGAR:
-#   1. Etiquetar los nodos del Swarm:
-#        docker node update --label-add name=maquina1 <NODE_ID_1>
-#        docker node update --label-add name=maquina2 <NODE_ID_2>
-#        docker node update --label-add name=maquina3 <NODE_ID_3>
+#   1. Copiar y editar variables:  cp .env.example .env
+#   2. Inicializar el Swarm:       just init-swarm
+#   3. Unir los otros nodos:       just join-swarm-manager (en cada nodo)
+#   4. Etiquetar nodos:            just label-node <hostname>  (en los 3)
+#   5. Desplegar:                  just deploy
 #
-#   2. Construir y publicar las imágenes de FastAPI y Worker (Swarm no hace build):
-#        docker build -t <REGISTRY>/fastapi:latest .
-#        docker build -t <REGISTRY>/worker:latest ./worker
-#        docker push <REGISTRY>/fastapi:latest
-#        docker push <REGISTRY>/worker:latest
-#
-#   3. Desplegar:
-#        export $(cat .env | xargs) && docker stack deploy -c stack.yml pda
-#
-# NOTA: depends_on es ignorado por Swarm. Los servicios deben tener
-#       lógica de reintento para conectarse a sus dependencias.
+# NOTA: depends_on es ignorado por Swarm. Todos los servicios tienen
+#       restart_policy: on-failure para manejar el orden de arranque.
 
 services:
 
   # ================================================================
-  # etcd — almacén distribuido de configuración (quorum Raft de 3)
-  # Cada nodo conoce a los otros dos desde el arranque.
-  # Tolera la caída de 1 nodo y mantiene quorum con los 2 restantes.
+  # etcd — quorum Raft de 3 nodos
+  # Tolera caer 1 nodo. Usa el hostname del nodo para nombre único.
   # ================================================================
 
   etcd1:
@@ -32,13 +23,13 @@ services:
       - /usr/local/bin/etcd
       - --name=etcd1
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd1:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd1:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
+      - --advertise-client-urls=http://etcd1:${ETCD3_PORT}
+      - --listen-peer-urls=http://0.0.0.0:${ETCD3_PEER_PORT}
+      - --initial-advertise-peer-urls=http://etcd1:${ETCD3_PEER_PORT}
+      - --initial-cluster=etcd1=http://etcd1:${ETCD3_PEER_PORT},etcd2=http://etcd2:${ETCD3_PEER_PORT},etcd3=http://etcd3:${ETCD3_PEER_PORT}
+      - --initial-cluster-token=${ETCD3_CLUSTER_TOKEN}
       - --initial-cluster-state=new
-      - --initial-cluster-token=pda-etcd-cluster
     volumes:
       - etcd1_data:/etcd-data
     networks:
@@ -46,7 +37,11 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina1
+          - node.labels.etcd == true
+          - node.hostname == ${NODE1_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
 
   etcd2:
     image: quay.io/coreos/etcd:v3.5.29
@@ -54,13 +49,13 @@ services:
       - /usr/local/bin/etcd
       - --name=etcd2
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd2:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd2:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
+      - --advertise-client-urls=http://etcd2:${ETCD3_PORT}
+      - --listen-peer-urls=http://0.0.0.0:${ETCD3_PEER_PORT}
+      - --initial-advertise-peer-urls=http://etcd2:${ETCD3_PEER_PORT}
+      - --initial-cluster=etcd1=http://etcd1:${ETCD3_PEER_PORT},etcd2=http://etcd2:${ETCD3_PEER_PORT},etcd3=http://etcd3:${ETCD3_PEER_PORT}
+      - --initial-cluster-token=${ETCD3_CLUSTER_TOKEN}
       - --initial-cluster-state=new
-      - --initial-cluster-token=pda-etcd-cluster
     volumes:
       - etcd2_data:/etcd-data
     networks:
@@ -68,7 +63,11 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina2
+          - node.labels.etcd == true
+          - node.hostname == ${NODE2_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
 
   etcd3:
     image: quay.io/coreos/etcd:v3.5.29
@@ -76,13 +75,13 @@ services:
       - /usr/local/bin/etcd
       - --name=etcd3
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd3:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd3:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
+      - --advertise-client-urls=http://etcd3:${ETCD3_PORT}
+      - --listen-peer-urls=http://0.0.0.0:${ETCD3_PEER_PORT}
+      - --initial-advertise-peer-urls=http://etcd3:${ETCD3_PEER_PORT}
+      - --initial-cluster=etcd1=http://etcd1:${ETCD3_PEER_PORT},etcd2=http://etcd2:${ETCD3_PEER_PORT},etcd3=http://etcd3:${ETCD3_PEER_PORT}
+      - --initial-cluster-token=${ETCD3_CLUSTER_TOKEN}
       - --initial-cluster-state=new
-      - --initial-cluster-token=pda-etcd-cluster
     volumes:
       - etcd3_data:/etcd-data
     networks:
@@ -90,12 +89,15 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina3
+          - node.labels.etcd == true
+          - node.hostname == ${NODE3_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
 
   # ================================================================
-  # Patroni + PostgreSQL — BD con elección de líder automática
-  # Los 3 nodos forman un cluster: 1 primary + 2 replicas.
-  # Si cae el primary, etcd detecta el fallo y Patroni elige uno nuevo.
+  # Patroni + PostgreSQL — 1 primary + 2 replicas
+  # Si cae el primary, etcd detecta el fallo y elige uno nuevo.
   # ================================================================
 
   patroni1:
@@ -103,7 +105,7 @@ services:
     hostname: patroni1
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
@@ -113,21 +115,30 @@ services:
       PGUSER_ADMIN: ${PGUSER_ADMIN}
       USE_ADMIN: ${USE_ADMIN}
       PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+      PGPORT: ${PGPORT}
+      INITDB_LOCALE: ${INITDB_LOCALE}
     volumes:
       - patroni1_data:${PGROOT}/data
+    ports:
+      - target: 8008
+        published: 8008
+        mode: host
     networks:
       - red_distribuida
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina1
+          - node.hostname == ${NODE1_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 10s
 
   patroni2:
     image: ghcr.io/zalando/spilo-17:4.0-p3
     hostname: patroni2
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
@@ -137,6 +148,8 @@ services:
       PGUSER_ADMIN: ${PGUSER_ADMIN}
       USE_ADMIN: ${USE_ADMIN}
       PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+      PGPORT: ${PGPORT}
+      INITDB_LOCALE: ${INITDB_LOCALE}
     volumes:
       - patroni2_data:${PGROOT}/data
     networks:
@@ -144,14 +157,17 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina2
+          - node.hostname == ${NODE2_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 10s
 
   patroni3:
     image: ghcr.io/zalando/spilo-17:4.0-p3
     hostname: patroni3
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
@@ -161,6 +177,8 @@ services:
       PGUSER_ADMIN: ${PGUSER_ADMIN}
       USE_ADMIN: ${USE_ADMIN}
       PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+      PGPORT: ${PGPORT}
+      INITDB_LOCALE: ${INITDB_LOCALE}
     volumes:
       - patroni3_data:${PGROOT}/data
     networks:
@@ -168,14 +186,15 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina3
+          - node.hostname == ${NODE3_HOSTNAME}
+      restart_policy:
+        condition: on-failure
+        delay: 10s
 
   # ================================================================
-  # MinIO — almacenamiento de objetos distribuido
-  # 3 nodos × 2 drives = 6 drives totales.
-  # Erasure coding: 3 datos + 3 paridad → tolera perder 1 nodo completo.
-  # Cada nodo se fija a su máquina para mantener localidad de datos.
-  # La consola web (puerto 9001) se expone en modo host en cada nodo.
+  # MinIO — 3 nodos × 2 drives = 6 drives, erasure coding 3+3
+  # Tolera perder 1 nodo completo sin pérdida de datos.
+  # Consola web en puerto 9001 (modo host, cada nodo la expone).
   # ================================================================
 
   minio1:
@@ -202,7 +221,10 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina1
+          - node.labels.minio == true
+          - node.hostname == ${NODE1_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   minio2:
     image: minio/minio:latest
@@ -228,7 +250,10 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina2
+          - node.labels.minio == true
+          - node.hostname == ${NODE2_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   minio3:
     image: minio/minio:latest
@@ -254,12 +279,15 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina3
+          - node.labels.minio == true
+          - node.hostname == ${NODE3_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   # ================================================================
-  # RabbitMQ — cola de mensajes en cluster de 3 nodos
-  # La configuración de peer discovery se inyecta via Swarm configs.
-  # Todos los nodos comparten el mismo ERLANG_COOKIE (obligatorio).
+  # RabbitMQ — cluster de 3 nodos
+  # Peer discovery via rabbitmq.conf inyectado con Swarm configs.
+  # ERLANG_COOKIE debe ser idéntica en los 3 nodos.
   # ================================================================
 
   rabbitmq1:
@@ -280,7 +308,9 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina1
+          - node.hostname == ${NODE1_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   rabbitmq2:
     image: rabbitmq:3.13-management
@@ -300,7 +330,9 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina2
+          - node.hostname == ${NODE2_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   rabbitmq3:
     image: rabbitmq:3.13-management
@@ -320,20 +352,20 @@ services:
     deploy:
       placement:
         constraints:
-          - node.labels.name == maquina3
+          - node.hostname == ${NODE3_HOSTNAME}
+      restart_policy:
+        condition: on-failure
 
   # ================================================================
-  # FastAPI — backend stateless
-  # mode: global → Swarm coloca una instancia en cada nodo automáticamente.
-  # Se conecta a PostgreSQL con multi-host para tolerancia a fallas:
-  # libpq intenta cada host en orden y usa el que tenga target_session_attrs=read-write.
+  # FastAPI — stateless, una instancia por nodo (mode: global)
+  # Multi-host PostgreSQL: libpq prueba cada host y usa el primary.
   # ================================================================
 
   fastapi:
-    image: ${REGISTRY:-local}/fastapi:latest
+    image: ${REGISTRY:-localhost}/fastapi:latest
     environment:
       DATABASE_URL: >-
-        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:5432,patroni2:5432,patroni3:5432/postgres?target_session_attrs=read-write
+        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:${PGPORT},patroni2:${PGPORT},patroni3:${PGPORT}/postgres?target_session_attrs=read-write
       MINIO_ENDPOINT: minio1:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
@@ -350,15 +382,14 @@ services:
         delay: 5s
 
   # ================================================================
-  # Worker — procesamiento asíncrono de PDFs (TF-IDF)
-  # mode: global → una instancia por nodo.
+  # Worker — TF-IDF classifier, una instancia por nodo (mode: global)
   # ================================================================
 
   worker:
-    image: ${REGISTRY:-local}/worker:latest
+    image: ${REGISTRY:-localhost}/worker:latest
     environment:
       DATABASE_URL: >-
-        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:5432,patroni2:5432,patroni3:5432/postgres?target_session_attrs=read-write
+        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:${PGPORT},patroni2:${PGPORT},patroni3:${PGPORT}/postgres?target_session_attrs=read-write
       MINIO_ENDPOINT: minio1:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
@@ -374,10 +405,9 @@ services:
         delay: 5s
 
   # ================================================================
-  # Nginx — punto de entrada unificado
-  # Puerto 80 en modo host → cada máquina expone su propio Nginx.
-  # Sirve el build de Angular en / y proxea /api/ a FastAPI.
-  # En Swarm, 'fastapi' resuelve via VIP al pool de instancias activas.
+  # Nginx — punto de entrada unificado (mode: global)
+  # Sirve Angular en / y proxea /api/ a FastAPI via VIP.
+  # Config distribuida con Swarm configs (no requiere volumen local).
   # ================================================================
 
   nginx:
@@ -386,27 +416,21 @@ services:
       - target: 80
         published: 80
         mode: host
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
     networks:
       - red_distribuida
     deploy:
       mode: global
-
-# ================================================================
-# Swarm Configs — archivos de configuración distribuidos a los nodos
-# ================================================================
+      restart_policy:
+        condition: on-failure
 
 configs:
   rabbitmq_conf:
     file: ./rabbitmq/rabbitmq.conf
-
-# ================================================================
-# Volumes — creados localmente en el nodo donde corre el servicio.
-# Como cada servicio stateful está pineado, los datos siempre
-# quedan en el mismo nodo físico.
-# ================================================================
+  nginx_conf:
+    file: ./nginx/nginx.conf
 
 volumes:
   etcd1_data:
@@ -424,11 +448,6 @@ volumes:
   rabbitmq1_data:
   rabbitmq2_data:
   rabbitmq3_data:
-
-# ================================================================
-# Networks — overlay cifrado que conecta contenedores entre nodos.
-# attachable: true permite conectar contenedores manuales para debug.
-# ================================================================
 
 networks:
   red_distribuida:
