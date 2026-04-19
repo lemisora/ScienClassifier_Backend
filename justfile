@@ -50,6 +50,25 @@ list-labels:
     docker node ls -q | xargs -I{} docker node inspect {} --format '{{{{.Description.Hostname}}}}: {{{{.Spec.Labels}}}}'
 
 # ==========================================
+# Build de imágenes
+# ==========================================
+
+# Construye ambas imágenes y las empuja al registro
+build:
+    docker build -f Dockerfile.fastapi -t ${REGISTRY:-localhost}/fastapi:latest .
+    docker build -f Dockerfile.worker  -t ${REGISTRY:-localhost}/worker:latest  .
+
+# Solo construye sin empujar (útil para pruebas locales)
+build-local:
+    docker build -f Dockerfile.fastapi -t fastapi:latest .
+    docker build -f Dockerfile.worker  -t worker:latest  .
+
+# Empuja las imágenes al registro configurado en .env
+push:
+    docker push ${REGISTRY:-localhost}/fastapi:latest
+    docker push ${REGISTRY:-localhost}/worker:latest
+
+# ==========================================
 # Despliegue
 # ==========================================
 
