@@ -4,7 +4,7 @@ Este repositorio contiene el backend de un sistema de almacenamiento distribuido
 
 ## Descripción General
 
-El sistema utiliza una arquitectura de microservicios containerizada con Docker, diseñada para escalar horizontalmente según la demanda de procesamiento.
+El sistema utiliza una arquitectura de microservicios **simétrica**: las 3 máquinas del clúster corren exactamente los mismos servicios. No hay nodo especial ni punto único de falla. La orquestación se hace con **Docker Swarm** usando un único `stack.yml` desplegado desde cualquier manager.
 
 ## Estructura del Proyecto
 
@@ -79,25 +79,83 @@ Orquestación de todos los contenedores Docker:
 
 - **Python 3.x**: Lenguaje principal
 - **FastAPI**: Framework web de alto rendimiento
-- **Docker**: Containerización
-- **nginx**: Servidor HTTP y balanceador de carga
-- **RabbitMQ**: Sistema de mensajería asíncrona
-- **MinIO**: Almacenamiento de objetos distribuido
-- **SQL**: Base de datos relacional
+- **Docker Swarm**: Orquestación multi-nodo (reemplaza Docker Compose)
+- **Nginx**: Sirve el frontend Angular compilado + hace proxy de `/api` a FastAPI
+- **RabbitMQ**: Cluster de mensajería asíncrona (3 nodos)
+- **MinIO**: Almacenamiento de objetos distribuido (3 nodos × 2 drives)
+- **PostgreSQL + Patroni + etcd**: Base de datos con alta disponibilidad y elección de líder automática
 - **JWT**: Autenticación stateless
+- **Tailscale**: Red overlay para la demo entre equipos
+
+## Decisiones de arquitectura
+
+### Arquitectura simétrica
+
+Cada nodo corre: Nginx, FastAPI, Worker, Patroni+PostgreSQL, etcd, RabbitMQ, MinIO. No hay nodo "maestro" a nivel de infraestructura — la elección de líder la manejan Patroni y etcd internamente.
+
+### MinIO distribuido
+
+- **3 nodos × 2 drives = 6 drives totales**
+- MinIO aplica erasure coding: 3 fragmentos de datos + 3 de paridad
+- Tolera perder un nodo completo (2 drives) sin pérdida de datos
+- Cada instancia se **fija a su nodo** con `placement constraints` en Swarm para que los datos no migren
+
+### Nginx como punto de entrada unificado
+
+```
+Usuario → Nginx → /          → Angular (archivos estáticos compilados)
+               → /api/...   → FastAPI (round-robin entre los 3 nodos)
+```
+
+Un solo puerto expuesto al usuario. No hay distinción visible entre frontend y backend.
+
+### Swarm: stateful vs stateless
+
+| Tipo | Servicios | Estrategia Swarm |
+|------|-----------|-----------------|
+| Stateful | MinIO, Patroni, etcd | `placement constraints` fijos por nodo |
+| Stateless | FastAPI, Worker, Nginx | `mode: global` (una instancia por nodo) |
+
+### Red
+
+- **Pruebas**: IPs locales (LAN)
+- **Demo**: Tailscale — `docker swarm init --advertise-addr <IP_TAILSCALE>` en el manager inicial; los otros nodos hacen join con la IP Tailscale correspondiente
 
 ## Despliegue
 
-Para levantar el entorno de desarrollo:
+### Inicializar el Swarm (solo una vez, desde máquina 1)
 
 ```bash
-docker-compose up --build
+docker swarm init --advertise-addr <IP_MAQUINA1>
+# Guardar el token que imprime para unir los otros nodos
 ```
 
-Para escalar workers:
+### Unir las otras máquinas
 
 ```bash
-docker-compose up --scale worker=N
+# En máquina 2 y 3
+docker swarm join --token <TOKEN> <IP_MAQUINA1>:2377
+```
+
+### Etiquetar los nodos (necesario para los placement constraints)
+
+```bash
+docker node update --label-add name=maquina1 <NODE_ID_1>
+docker node update --label-add name=maquina2 <NODE_ID_2>
+docker node update --label-add name=maquina3 <NODE_ID_3>
+```
+
+### Desplegar el stack
+
+```bash
+docker stack deploy -c stack.yml pda
+```
+
+### Verificar estado
+
+```bash
+docker stack services pda
+docker service ps pda_minio1
 ```
 
 ## Requisitos

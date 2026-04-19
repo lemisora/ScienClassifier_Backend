@@ -1,0 +1,453 @@
+# Docker Swarm Stack — Sistema Distribuido de Análisis de Artículos Científicos
+#
+# ANTES DE DESPLEGAR:
+#   1. Etiquetar los nodos del Swarm:
+#        docker node update --label-add name=maquina1 <NODE_ID_1>
+#        docker node update --label-add name=maquina2 <NODE_ID_2>
+#        docker node update --label-add name=maquina3 <NODE_ID_3>
+#
+#   2. Construir y publicar las imágenes de FastAPI y Worker (Swarm no hace build):
+#        docker build -t <REGISTRY>/fastapi:latest .
+#        docker build -t <REGISTRY>/worker:latest ./worker
+#        docker push <REGISTRY>/fastapi:latest
+#        docker push <REGISTRY>/worker:latest
+#
+#   3. Desplegar:
+#        export $(cat .env | xargs) && docker stack deploy -c stack.yml pda
+#
+# NOTA: depends_on es ignorado por Swarm. Los servicios deben tener
+#       lógica de reintento para conectarse a sus dependencias.
+
+version: "3.8"
+
+services:
+
+  # ================================================================
+  # etcd — almacén distribuido de configuración (quorum Raft de 3)
+  # Cada nodo conoce a los otros dos desde el arranque.
+  # Tolera la caída de 1 nodo y mantiene quorum con los 2 restantes.
+  # ================================================================
+
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.29
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd1
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd1:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd1:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=pda-etcd-cluster
+    volumes:
+      - etcd1_data:/etcd-data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina1
+
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.29
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd2
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=pda-etcd-cluster
+    volumes:
+      - etcd2_data:/etcd-data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina2
+
+  etcd3:
+    image: quay.io/coreos/etcd:v3.5.29
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd3
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd3:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd3:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=pda-etcd-cluster
+    volumes:
+      - etcd3_data:/etcd-data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina3
+
+  # ================================================================
+  # Patroni + PostgreSQL — BD con elección de líder automática
+  # Los 3 nodos forman un cluster: 1 primary + 2 replicas.
+  # Si cae el primary, etcd detecta el fallo y Patroni elige uno nuevo.
+  # ================================================================
+
+  patroni1:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    hostname: patroni1
+    environment:
+      SCOPE: ${SCOPE}
+      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ALLOW_NOSSL: "true"
+      PGROOT: ${PGROOT}
+      PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
+      PGPASSWORD_SUPERUSER: ${PGPASSWORD_SUPERUSER}
+      PGUSER_STANDBY: ${PGUSER_STANDBY}
+      PGPASSWORD_STANDBY: ${PGPASSWORD_STANDBY}
+      PGUSER_ADMIN: ${PGUSER_ADMIN}
+      USE_ADMIN: ${USE_ADMIN}
+      PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+    volumes:
+      - patroni1_data:${PGROOT}/data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina1
+
+  patroni2:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    hostname: patroni2
+    environment:
+      SCOPE: ${SCOPE}
+      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ALLOW_NOSSL: "true"
+      PGROOT: ${PGROOT}
+      PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
+      PGPASSWORD_SUPERUSER: ${PGPASSWORD_SUPERUSER}
+      PGUSER_STANDBY: ${PGUSER_STANDBY}
+      PGPASSWORD_STANDBY: ${PGPASSWORD_STANDBY}
+      PGUSER_ADMIN: ${PGUSER_ADMIN}
+      USE_ADMIN: ${USE_ADMIN}
+      PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+    volumes:
+      - patroni2_data:${PGROOT}/data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina2
+
+  patroni3:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    hostname: patroni3
+    environment:
+      SCOPE: ${SCOPE}
+      ETCD3_HOSTS: "etcd1:2379,etcd2:2379,etcd3:2379"
+      ALLOW_NOSSL: "true"
+      PGROOT: ${PGROOT}
+      PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
+      PGPASSWORD_SUPERUSER: ${PGPASSWORD_SUPERUSER}
+      PGUSER_STANDBY: ${PGUSER_STANDBY}
+      PGPASSWORD_STANDBY: ${PGPASSWORD_STANDBY}
+      PGUSER_ADMIN: ${PGUSER_ADMIN}
+      USE_ADMIN: ${USE_ADMIN}
+      PGPASSWORD_ADMIN: ${PGPASSWORD_ADMIN}
+    volumes:
+      - patroni3_data:${PGROOT}/data
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina3
+
+  # ================================================================
+  # MinIO — almacenamiento de objetos distribuido
+  # 3 nodos × 2 drives = 6 drives totales.
+  # Erasure coding: 3 datos + 3 paridad → tolera perder 1 nodo completo.
+  # Cada nodo se fija a su máquina para mantener localidad de datos.
+  # La consola web (puerto 9001) se expone en modo host en cada nodo.
+  # ================================================================
+
+  minio1:
+    image: minio/minio:latest
+    command: >
+      server
+      http://minio1/data{1...2}
+      http://minio2/data{1...2}
+      http://minio3/data{1...2}
+      --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio1_data1:/data1
+      - minio1_data2:/data2
+    ports:
+      - target: 9001
+        published: 9001
+        mode: host
+    networks:
+      - red_distribuida
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina1
+
+  minio2:
+    image: minio/minio:latest
+    command: >
+      server
+      http://minio1/data{1...2}
+      http://minio2/data{1...2}
+      http://minio3/data{1...2}
+      --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio2_data1:/data1
+      - minio2_data2:/data2
+    ports:
+      - target: 9001
+        published: 9001
+        mode: host
+    networks:
+      - red_distribuida
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina2
+
+  minio3:
+    image: minio/minio:latest
+    command: >
+      server
+      http://minio1/data{1...2}
+      http://minio2/data{1...2}
+      http://minio3/data{1...2}
+      --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio3_data1:/data1
+      - minio3_data2:/data2
+    ports:
+      - target: 9001
+        published: 9001
+        mode: host
+    networks:
+      - red_distribuida
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina3
+
+  # ================================================================
+  # RabbitMQ — cola de mensajes en cluster de 3 nodos
+  # La configuración de peer discovery se inyecta via Swarm configs.
+  # Todos los nodos comparten el mismo ERLANG_COOKIE (obligatorio).
+  # ================================================================
+
+  rabbitmq1:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq1
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_NODENAME: rabbit@rabbitmq1
+    configs:
+      - source: rabbitmq_conf
+        target: /etc/rabbitmq/rabbitmq.conf
+    volumes:
+      - rabbitmq1_data:/var/lib/rabbitmq
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina1
+
+  rabbitmq2:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq2
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_NODENAME: rabbit@rabbitmq2
+    configs:
+      - source: rabbitmq_conf
+        target: /etc/rabbitmq/rabbitmq.conf
+    volumes:
+      - rabbitmq2_data:/var/lib/rabbitmq
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina2
+
+  rabbitmq3:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq3
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_NODENAME: rabbit@rabbitmq3
+    configs:
+      - source: rabbitmq_conf
+        target: /etc/rabbitmq/rabbitmq.conf
+    volumes:
+      - rabbitmq3_data:/var/lib/rabbitmq
+    networks:
+      - red_distribuida
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == maquina3
+
+  # ================================================================
+  # FastAPI — backend stateless
+  # mode: global → Swarm coloca una instancia en cada nodo automáticamente.
+  # Se conecta a PostgreSQL con multi-host para tolerancia a fallas:
+  # libpq intenta cada host en orden y usa el que tenga target_session_attrs=read-write.
+  # ================================================================
+
+  fastapi:
+    image: ${REGISTRY:-local}/fastapi:latest
+    environment:
+      DATABASE_URL: >-
+        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:5432,patroni2:5432,patroni3:5432/postgres?target_session_attrs=read-write
+      MINIO_ENDPOINT: minio1:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      RABBITMQ_URL: >-
+        amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq1:5672/
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    networks:
+      - red_distribuida
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  # ================================================================
+  # Worker — procesamiento asíncrono de PDFs (TF-IDF)
+  # mode: global → una instancia por nodo.
+  # ================================================================
+
+  worker:
+    image: ${REGISTRY:-local}/worker:latest
+    environment:
+      DATABASE_URL: >-
+        postgresql://${PGUSER_ADMIN}:${PGPASSWORD_ADMIN}@patroni1:5432,patroni2:5432,patroni3:5432/postgres?target_session_attrs=read-write
+      MINIO_ENDPOINT: minio1:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      RABBITMQ_URL: >-
+        amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq1:5672/
+    networks:
+      - red_distribuida
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  # ================================================================
+  # Nginx — punto de entrada unificado
+  # Puerto 80 en modo host → cada máquina expone su propio Nginx.
+  # Sirve el build de Angular en / y proxea /api/ a FastAPI.
+  # En Swarm, 'fastapi' resuelve via VIP al pool de instancias activas.
+  # ================================================================
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - target: 80
+        published: 80
+        mode: host
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    networks:
+      - red_distribuida
+    deploy:
+      mode: global
+
+# ================================================================
+# Swarm Configs — archivos de configuración distribuidos a los nodos
+# ================================================================
+
+configs:
+  rabbitmq_conf:
+    file: ./rabbitmq/rabbitmq.conf
+
+# ================================================================
+# Volumes — creados localmente en el nodo donde corre el servicio.
+# Como cada servicio stateful está pineado, los datos siempre
+# quedan en el mismo nodo físico.
+# ================================================================
+
+volumes:
+  etcd1_data:
+  etcd2_data:
+  etcd3_data:
+  patroni1_data:
+  patroni2_data:
+  patroni3_data:
+  minio1_data1:
+  minio1_data2:
+  minio2_data1:
+  minio2_data2:
+  minio3_data1:
+  minio3_data2:
+  rabbitmq1_data:
+  rabbitmq2_data:
+  rabbitmq3_data:
+
+# ================================================================
+# Networks — overlay cifrado que conecta contenedores entre nodos.
+# attachable: true permite conectar contenedores manuales para debug.
+# ================================================================
+
+networks:
+  red_distribuida:
+    driver: overlay
+    attachable: true
