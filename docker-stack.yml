@@ -1,0 +1,87 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.29
+    command:
+      - /usr/local/bin/etcd
+      - --name=${ETCD_NODE_NAME}
+      - --data-dir=/etcd-data
+      - --advertise-client-urls=http://${ETCD_NODE_IP}:${ETCD3_PORT}
+      - --listen-client-urls=http://0.0.0.0:${ETCD3_PORT}
+      - --initial-advertise-peer-urls=http://${ETCD_NODE_IP}:${ETCD3_PEER_PORT}
+      - --listen-peer-urls=http://0.0.0.0:${ETCD3_PEER_PORT}
+      - --initial-cluster-token=${ETCD3_CLUSTER_TOKEN}
+      - --initial-cluster-state=new
+      - --initial-cluster=${ETCD3_INITIAL_CLUSTER}
+    volumes:
+      - etcd_data:/etcd-data
+    networks:
+      - red_distribuida
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.labels.etcd == true
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  patroni:
+    image: ghcr.io/zalando/spilo-17:4.0-p3
+    environment:
+      - SCOPE
+      - ETCD3_HOSTS=tasks.etcd:${ETCD3_PORT}
+      - ALLOW_NOSSL=true
+      - PGROOT
+      - PGUSER_SUPERUSER
+      - PGPASSWORD_SUPERUSER
+      - PGUSER_STANDBY
+      - PGPASSWORD_STANDBY
+      - PGUSER_ADMIN
+      - USE_ADMIN
+      - PGPASSWORD_ADMIN
+      - PGPORT
+      - INITDB_LOCALE
+    ports:
+      - "${PGPORT}:${PGPORT}"
+      - "8008:8008"
+    volumes:
+      - patroni_data:${PGROOT}/data
+    networks:
+      - red_distribuida
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "8080:80"
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/nginx.conf
+    networks:
+      - red_distribuida
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  patroni_data:
+    name: patroni_data
+  etcd_data:
+    name: etcd_data
+
+configs:
+  nginx_config:
+    file: ./nginx/nginx.conf
+
+networks:
+  red_distribuida:
+    driver: overlay
+    attachable: true
