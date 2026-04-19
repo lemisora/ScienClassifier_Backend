@@ -20,9 +20,12 @@ services:
       - ETCD3_HOST
       - ALLOW_NOSSL=true
       - PGROOT
+      - PGUSER_SUPERUSER
+      - PGPASSWORD_SUPERUSER
       - PGUSER_STANDBY
       - PGPASSWORD_STANDBY
       - PGUSER_ADMIN
+      - USE_ADMIN
       - PGPASSWORD_ADMIN
 
     ports:
