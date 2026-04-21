@@ -12,7 +12,42 @@ DATABASE_URL = os.getenv(
     "postgresql://admin:admin_password_segura@localhost:5432/postgres",
 )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# psycopg2 soporta multi-host en connect_args pero SQLAlchemy no lo parsea en la URL.
+# Si la URL tiene comas (patroni1:5432,patroni2:5432,...) extraemos los hosts y los
+# pasamos via connect_args para que libpq haga el failover automático.
+def _build_engine():
+    import re
+    m = re.match(
+        r"postgresql(?:\+psycopg2)?://([^:]+):([^@]+)@(.+)/([^?]+)(.*)",
+        DATABASE_URL,
+    )
+    if m:
+        user, password, hostpart, dbname, qs = m.groups()
+        if "," in hostpart:
+            hosts, ports = [], []
+            for hp in hostpart.split(","):
+                h, _, p = hp.partition(":")
+                hosts.append(h.strip())
+                ports.append((p or "5432").strip())
+            extra = {}
+            if "target_session_attrs=read-write" in qs:
+                extra["target_session_attrs"] = "read-write"
+            return create_engine(
+                "postgresql+psycopg2://",
+                connect_args={
+                    "host": ",".join(hosts),
+                    "port": ",".join(ports),
+                    "user": user,
+                    "password": password,
+                    "dbname": dbname,
+                    **extra,
+                },
+                pool_pre_ping=True,
+            )
+    return create_engine(DATABASE_URL, pool_pre_ping=True)
+
+
+engine = _build_engine()
 SessionLocal = sessionmaker(bind=engine)
 
 

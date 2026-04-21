@@ -18,7 +18,7 @@ services:
   # ================================================================
 
   etcd1:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd1
@@ -44,7 +44,7 @@ services:
         delay: 5s
 
   etcd2:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd2
@@ -70,7 +70,7 @@ services:
         delay: 5s
 
   etcd3:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd3
@@ -217,14 +217,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE1_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   minio2:
     image: minio/minio:latest
@@ -246,14 +247,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE2_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   minio3:
     image: minio/minio:latest
@@ -275,14 +277,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE3_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   # ================================================================
   # RabbitMQ — cluster de 3 nodos
