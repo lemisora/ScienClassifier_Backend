@@ -399,14 +399,11 @@ services:
   # ================================================================
 
   nginx:
-    image: nginx:1.25-alpine
+    image: ${REGISTRY:-localhost}/nginx:latest
     ports:
       - target: 80
         published: 80
-        mode: host
-    configs:
-      - source: nginx_conf_v3
-        target: /etc/nginx/nginx.conf
+        mode: ingress
     networks:
       - red_distribuida
     deploy:
@@ -417,8 +414,6 @@ services:
 configs:
   rabbitmq_conf:
     file: ./rabbitmq/rabbitmq.conf
-  nginx_conf_v3:
-    file: ./nginx/nginx.conf
 
 volumes:
   etcd1_data:

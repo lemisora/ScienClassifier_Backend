@@ -53,20 +53,35 @@ list-labels:
 # Build de imágenes
 # ==========================================
 
-# Construye ambas imágenes y las empuja al registro
-build:
+# Compila el frontend Angular y copia el dist a nginx/html/
+ng-build:
+    cd ../ScienClassifier_Frontend/scienclassifier && npm install && npx ng build --configuration=production
+    rm -rf nginx/html
+    cp -r ../ScienClassifier_Frontend/scienclassifier/dist/scienclassifier/browser nginx/html
+
+# Construye las 3 imágenes (incluye compilar Angular)
+build: ng-build
     docker build -f Dockerfile.fastapi -t ${REGISTRY:-localhost}/fastapi:latest .
     docker build -f Dockerfile.worker  -t ${REGISTRY:-localhost}/worker:latest  .
+    docker build -f Dockerfile.nginx   -t ${REGISTRY:-localhost}/nginx:latest   .
+
+# Solo construye sin compilar Angular (cuando el dist ya está actualizado)
+build-no-ng:
+    docker build -f Dockerfile.fastapi -t ${REGISTRY:-localhost}/fastapi:latest .
+    docker build -f Dockerfile.worker  -t ${REGISTRY:-localhost}/worker:latest  .
+    docker build -f Dockerfile.nginx   -t ${REGISTRY:-localhost}/nginx:latest   .
 
 # Solo construye sin empujar (útil para pruebas locales)
-build-local:
+build-local: ng-build
     docker build -f Dockerfile.fastapi -t fastapi:latest .
     docker build -f Dockerfile.worker  -t worker:latest  .
+    docker build -f Dockerfile.nginx   -t nginx:latest   .
 
 # Empuja las imágenes al registro configurado en .env
 push:
     docker push ${REGISTRY:-localhost}/fastapi:latest
     docker push ${REGISTRY:-localhost}/worker:latest
+    docker push ${REGISTRY:-localhost}/nginx:latest
 
 # ==========================================
 # Despliegue
