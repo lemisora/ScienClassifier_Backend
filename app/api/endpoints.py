@@ -51,6 +51,7 @@ class DocumentOut(BaseModel):
     id: int
     filename: str
     uploaded_at: datetime
+    status: str
     title: str | None
     authors: str | None
     year: int | None
@@ -113,11 +114,14 @@ def upload_document(
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
 
+    if db.query(Document).filter(Document.user_id == user_id, Document.filename == file.filename).first():
+        raise HTTPException(status_code=409, detail=f"Ya existe un documento llamado '{file.filename}'. Elimínalo antes de volver a subirlo.")
+
     data = file.file.read()
     validate_pdf(data)
     object_key = upload_pdf(user_id=user_id, filename=file.filename, data=data)
 
-    doc = Document(user_id=user_id, filename=file.filename, object_key=object_key)
+    doc = Document(user_id=user_id, filename=file.filename, object_key=object_key, status="pending")
     db.add(doc)
     db.commit()
     db.refresh(doc)

@@ -75,6 +75,7 @@ class Document(Base):
     filename = Column(String(255), nullable=False)
     object_key = Column(String(512), nullable=False)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String(16), nullable=False, default="pending")  # pending | processing | done | error
 
     # Campos para APA7
     title = Column(String(512), nullable=True)
