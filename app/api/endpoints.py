@@ -1,7 +1,9 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.core.jwt_connections import (
@@ -38,15 +40,22 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class CategoryOut(BaseModel):
+    category: str
+    score: int
+
+    model_config = {"from_attributes": True}
+
+
 class DocumentOut(BaseModel):
     id: int
     filename: str
-    category: str | None
-    uploaded_at: str
+    uploaded_at: datetime
     title: str | None
     authors: str | None
     year: int | None
     journal: str | None
+    categories: list[CategoryOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -64,7 +73,7 @@ class UpdateUserRequest(BaseModel):
     password: str | None = None
 
 
-class DeleteDocumentsRequest(BaseModel):
+class DocumentIdsRequest(BaseModel):
     document_ids: list[int]
 
 
@@ -151,7 +160,7 @@ def delete_document(
 
 @router.post("/documents/delete-batch", status_code=status.HTTP_204_NO_CONTENT)
 def delete_documents_batch(
-    body: DeleteDocumentsRequest,
+    body: DocumentIdsRequest,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
@@ -174,7 +183,7 @@ def delete_documents_batch(
 
 @router.post("/documents/apa7")
 def generate_apa7(
-    body: DeleteDocumentsRequest,
+    body: DocumentIdsRequest,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
