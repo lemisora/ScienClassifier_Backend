@@ -6,7 +6,6 @@
 # Dependencias a usar:
 # - btop (Para monitorear el sistema)
 # - Docker desde los repos de DockerCE para poder desplegar contenedores
-# - Nix (para gestionar paquetes extra (en caso de usar Devenv o Flakes con dependencias externas del proyecto))
 
 # Función para mostrar mensajes con formato
 function print_message() {
@@ -107,7 +106,9 @@ sudo firewall-cmd --permanent --add-port=80/tcp     # nginx
 # ==========================================
 # Permitir tráfico interno de Docker
 # ==========================================
-sudo firewall-cmd --permanent --zone=trusted --add-interface=docker0
+# 
+# Removido dado que Docker no puede iniciar si antes se añade a la zona trusted
+# sudo firewall-cmd --permanent --zone=trusted --add-interface=docker0
 sudo firewall-cmd --permanent --zone=trusted --add-interface=docker_gwbridge
 sudo firewall-cmd --permanent --zone=trusted --add-source=10.0.0.0/8
 
