@@ -136,6 +136,10 @@ logs service="patroni":
 patroni-status:
     curl -s http://${MANAGER_IP}:8008/cluster | python3 -m json.tool
 
+# Verificar cuál instancia de Patroni es el primary e inicializar el usuario admin
+# Uso: just db-init
+db-init:
+    python3 scripts/db_init.py
 # Verificar health del cluster MinIO
 minio-health:
     curl -sf http://${MANAGER_IP}:9000/minio/health/cluster && echo "MinIO cluster OK" || echo "MinIO cluster FAIL"
@@ -154,12 +158,12 @@ rabbitmq-status:
 psql:
     docker run --rm -it --network scienclassifier_red_distribuida \
         postgres:17-alpine \
-        psql -h patroni -U ${PGUSER_SUPERUSER} -d postgres
+        psql -h patroni1 -U ${PGUSER_SUPERUSER} -d postgres
 
 # Crear bucket de MinIO manualmente (si no se creó automáticamente)
 minio-create-bucket:
     docker run --rm --network scienclassifier_red_distribuida \
-        minio/mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} && \
+        minio/mc alias set local http://minio1:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} && \
         docker run --rm --network scienclassifier_red_distribuida \
         minio/mc mb local/${MINIO_BUCKET} --ignore-existing
 
