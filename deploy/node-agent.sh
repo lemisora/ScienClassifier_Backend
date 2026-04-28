@@ -33,7 +33,7 @@ LOG_TAG="pda-agent"
 
 # ── Logging ───────────────────────────────────────────────
 ts()   { date '+%H:%M:%S'; }
-log()  { echo "$(ts) INFO  $*"; logger -t "$LOG_TAG" -- "$*" 2>/dev/null || true; }
+log()  { echo "$(ts) INFO  $*" >&2; logger -t "$LOG_TAG" -- "$*" 2>/dev/null || true; }
 warn() { echo "$(ts) WARN  $*" >&2; logger -t "$LOG_TAG" -p user.warning -- "$*" 2>/dev/null || true; }
 die()  { echo "$(ts) ERROR $*" >&2; logger -t "$LOG_TAG" -p user.err    -- "$*" 2>/dev/null || true; exit 1; }
 
