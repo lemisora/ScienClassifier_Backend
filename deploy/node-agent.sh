@@ -239,6 +239,24 @@ mgr_wait_all_joined() {
     done
 }
 
+mgr_init_db() {
+    log "Esperando Patroni primary para inicializar usuario admin..."
+    local attempt=0 max=30   # 30 × 10 s = 5 min máximo
+    while (( attempt < max )); do
+        local out
+        out=$(cd "$INSTALL_DIR" && just db-init 2>&1) && {
+            log "DB inicializada: $out"
+            docker service update --force scienclassifier_fastapi >/dev/null 2>&1 || true
+            log "FastAPI reiniciado para reconectar con credenciales correctas."
+            return 0
+        }
+        (( attempt++ ))
+        log "Patroni aún no listo (intento $attempt/$max) — reintentando en 10s..."
+        sleep 10
+    done
+    warn "db-init no tuvo éxito en 5 min. Correr manualmente: just db-init"
+}
+
 run_as_manager() {
     local my_hn="$1" my_ip="$2"
     log "════════════════════════════════════"
@@ -286,6 +304,9 @@ run_as_manager() {
     log "════════════════════════════════════"
     log "Stack desplegado. Cluster con $count nodos activo."
     log "════════════════════════════════════"
+
+    # ── Fase 7.5: inicializar usuario admin en PostgreSQL ─
+    mgr_init_db
 
     # ── Fase 8: discovery loop ───────────────────────────
     # Detecta nuevos nodos en la tailnet y los admite en pares
