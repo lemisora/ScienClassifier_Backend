@@ -64,7 +64,7 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
     sudo git -C "$INSTALL_DIR" pull --ff-only origin main
     log "       Repo actualizado."
 else
-    sudo git clone "$REPO_URL" "$INSTALL_DIR"
+    sudo git clone --branch testing_VMs_tailscale "$REPO_URL" "$INSTALL_DIR"
     log "       Repo clonado."
 fi
 sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
