@@ -381,11 +381,11 @@ run_as_worker() {
                 log "Ya estoy en el Swarm."
                 break
             fi
-            local wtoken real_manager_ip
-            wtoken=$(echo "$state"         | jq -r '.worker_token')
+            local mtoken real_manager_ip
+            mtoken=$(echo "$state"          | jq -r '.manager_token')
             real_manager_ip=$(echo "$state" | jq -r '.manager_ip')
-            log "Soy activo — uniéndome al Swarm en $real_manager_ip..."
-            docker swarm join --token "$wtoken" "$real_manager_ip:2377"
+            log "Soy activo — uniéndome al Swarm como manager en $real_manager_ip..."
+            docker swarm join --token "$mtoken" "$real_manager_ip:2377"
             log "Unido al Swarm exitosamente."
             break
 
