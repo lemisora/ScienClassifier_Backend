@@ -362,3 +362,27 @@ test-minio-down:
 check:
     docker info
     docker node ls
+
+# ==========================================
+# PDA Node Agent (autodescubrimiento)
+# ==========================================
+
+# Estado actual del cluster (requiere que el agente esté corriendo)
+agent-status:
+    @curl -s http://localhost:9999/state.json | python3 -m json.tool 2>/dev/null \
+        || echo "El agente no está sirviendo estado (¿está corriendo? sudo systemctl status pda-agent)"
+
+# Logs del agente en tiempo real
+agent-logs:
+    sudo journalctl -fu pda-agent
+
+# Reiniciar el agente manualmente
+agent-restart:
+    sudo systemctl restart pda-agent
+
+# Ver nodos pendientes de ser admitidos
+agent-pending:
+    @curl -s http://localhost:9999/state.json \
+        | python3 -c "import sys,json; s=json.load(sys.stdin); p=s.get('pending_nodes',[]); \
+          print('Pendientes:', p if p else 'ninguno'); \
+          print('Activos:   ', s.get('active_nodes',[]))"
