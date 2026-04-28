@@ -177,7 +177,7 @@ mgr_wait_quorum() {
 
 mgr_init_swarm() {
     local ip="$1"
-    if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q "active"; then
+    if [[ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" == "active" ]]; then
         log "Swarm ya activo — saltando init."
         return
     fi
@@ -377,7 +377,7 @@ run_as_worker() {
 
         if json_has "$active" "$my_hn"; then
             # El manager me admitió → unirme al Swarm
-            if docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q "active"; then
+            if [[ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" == "active" ]]; then
                 log "Ya estoy en el Swarm."
                 break
             fi
@@ -415,7 +415,7 @@ run_as_worker() {
     # Mantener vivo: re-unirse si el Swarm se cae (ej: reinicio del manager)
     while true; do
         sleep 60
-        if ! docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null | grep -q "active"; then
+        if [[ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" != "active" ]]; then
             warn "Perdí conexión al Swarm. Reintentando en $POLL s..."
             sleep "$POLL"
             # Systemd lo va a reiniciar si `exit 1`
