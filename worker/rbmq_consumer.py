@@ -8,7 +8,7 @@ import pdfplumber
 from io import BytesIO
 
 from app.db.sql_connections import Document, DocumentCategory, SessionLocal
-from app.services.minio_connection import get_client, BUCKET
+from app.db.services.minio_connection import get_client, BUCKET
 from worker.classifier import classify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [worker] %(message)s")
