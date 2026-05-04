@@ -1,0 +1,28 @@
+[Unit]
+Description=PDA Node Agent — autodescubrimiento y gestión del Swarm
+Documentation=https://github.com/lemisora/ScienClassifier_Backend
+After=network-online.target docker.service tailscaled.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/scienclassifier/deploy/node-agent.sh
+Restart=on-failure
+RestartSec=15
+StartLimitIntervalSec=0
+
+# Logs al journal con tag propio (ver: journalctl -t pda-agent)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pda-agent
+
+# Root para poder correr docker y tailscale sin sudo
+User=root
+Group=root
+
+# Cargar configuración del agente si existe
+EnvironmentFile=-/var/lib/pda-cluster/config.env
+
+[Install]
+WantedBy=multi-user.target

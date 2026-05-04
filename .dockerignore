@@ -1,0 +1,10 @@
+.git
+.env
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+tests/
+articulos_ejemplo/
+*.md
+rabbitmq/

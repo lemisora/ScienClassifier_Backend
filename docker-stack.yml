@@ -18,7 +18,7 @@ services:
   # ================================================================
 
   etcd1:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd1
@@ -44,7 +44,7 @@ services:
         delay: 5s
 
   etcd2:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd2
@@ -70,7 +70,7 @@ services:
         delay: 5s
 
   etcd3:
-    image: quay.io/coreos/etcd:v3.5.29
+    image: quay.io/coreos/etcd:v3.4.33
     command:
       - /usr/local/bin/etcd
       - --name=etcd3
@@ -199,6 +199,7 @@ services:
 
   minio1:
     image: minio/minio:latest
+    hostname: minio1
     command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -212,22 +213,18 @@ services:
         mode: host
     networks:
       - red_distribuida
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE1_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   minio2:
     image: minio/minio:latest
+    hostname: minio2
     command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -241,22 +238,18 @@ services:
         mode: host
     networks:
       - red_distribuida
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE2_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   minio3:
     image: minio/minio:latest
+    hostname: minio3
     command: server http://minio{1...3}/data{1...2} --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -270,19 +263,14 @@ services:
         mode: host
     networks:
       - red_distribuida
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
     deploy:
       placement:
         constraints:
           - node.labels.minio == true
           - node.hostname == ${NODE3_HOSTNAME}
       restart_policy:
-        condition: on-failure
+        condition: any
+        delay: 10s
 
   # ================================================================
   # RabbitMQ — cluster de 3 nodos
@@ -411,14 +399,11 @@ services:
   # ================================================================
 
   nginx:
-    image: nginx:1.25-alpine
+    image: ${REGISTRY:-localhost}/nginx:latest
     ports:
       - target: 80
         published: 80
-        mode: host
-    configs:
-      - source: nginx_conf
-        target: /etc/nginx/nginx.conf
+        mode: ingress
     networks:
       - red_distribuida
     deploy:
@@ -429,8 +414,6 @@ services:
 configs:
   rabbitmq_conf:
     file: ./rabbitmq/rabbitmq.conf
-  nginx_conf:
-    file: ./nginx/nginx.conf
 
 volumes:
   etcd1_data:

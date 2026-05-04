@@ -8,7 +8,7 @@ import pdfplumber
 from io import BytesIO
 
 from app.db.sql_connections import Document, DocumentCategory, SessionLocal
-from app.services.minio_connection import get_client, BUCKET
+from app.db.services.minio_connection import get_client, BUCKET
 from worker.classifier import classify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [worker] %(message)s")
@@ -46,11 +46,13 @@ def process(body: bytes) -> None:
             log.warning(f"Documento {document_id} no encontrado en DB, descartando")
             return
 
+        doc.status = "processing"
+        db.commit()
+
         doc.title = result["title"] or doc.filename
         doc.authors = result["authors"]
         doc.year = result["year"]
 
-        # Reemplazar categorías anteriores si se reprocesa
         db.query(DocumentCategory).filter(DocumentCategory.document_id == document_id).delete()
         for cat in result["categories"]:
             db.add(DocumentCategory(
@@ -59,8 +61,13 @@ def process(body: bytes) -> None:
                 score=int(cat["score"] * 100),
             ))
 
+        doc.status = "done"
         db.commit()
         log.info(f"Documento {document_id} clasificado: {[c['category'] for c in result['categories']]}")
+    except Exception as e:
+        doc.status = "error"
+        db.commit()
+        raise
     finally:
         db.close()
 
