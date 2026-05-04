@@ -10,6 +10,9 @@ _client: Minio | None = None
 
 BUCKET = os.getenv("MINIO_BUCKET", "scientific-papers")
 
+def get_pdf_stream(object_key: str):
+    client = get_client()
+    return client.get_object(BUCKET, object_key)
 
 def get_client() -> Minio:
     global _client

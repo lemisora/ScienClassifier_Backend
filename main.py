@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from app.api.endpoints import router
 from app.db.sql_connections import create_tables
-from app.services.minio_connection import ensure_bucket
+from app.db.services.minio_connection import ensure_bucket
 
 log = logging.getLogger(__name__)
 

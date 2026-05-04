@@ -34,6 +34,50 @@ INSTALL_DIR="/opt/scienclassifier"
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
 die()  { echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2; exit 1; }
 
+detect_pkg_manager() {
+    local os_id os_like
+    os_id=""
+    os_like=""
+
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        source /etc/os-release
+        os_id="${ID:-}"
+        os_like="${ID_LIKE:-}"
+    fi
+
+    if [[ "$os_id" =~ ^(debian|ubuntu)$ ]] || [[ "$os_like" == *"debian"* ]]; then
+        echo "apt"
+        return
+    fi
+
+    if [[ "$os_id" =~ ^(fedora|rhel|centos|rocky|almalinux)$ ]] || [[ "$os_like" == *"rhel"* ]] || [[ "$os_like" == *"fedora"* ]]; then
+        if command -v dnf &>/dev/null; then
+            echo "dnf"
+            return
+        fi
+    fi
+
+    die "Distribución no soportada para instalación automática de dependencias (ID='$os_id', ID_LIKE='$os_like')."
+}
+
+install_deps() {
+    local pkg_mgr="$1"
+    case "$pkg_mgr" in
+        apt)
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq jq git curl ca-certificates
+            ;;
+        dnf)
+            sudo dnf makecache -q
+            sudo dnf install -y -q jq git curl ca-certificates
+            ;;
+        *)
+            die "Gestor de paquetes no soportado: $pkg_mgr"
+            ;;
+    esac
+}
+
 echo ""
 echo "┌──────────────────────────────────────────────┐"
 echo "│   ScienClassifier — Bootstrap de nodo        │"
@@ -48,8 +92,9 @@ tailscale status &>/dev/null     || die "Tailscale no está conectado. Correr: t
 
 # ── [1/5] Instalar dependencias ──────────────────────────
 log "[1/5] Actualizando paquetes e instalando dependencias..."
-sudo apt-get update -qq
-sudo apt-get install -y -qq jq git curl ca-certificates
+PKG_MANAGER="$(detect_pkg_manager)"
+log "       Gestor detectado: $PKG_MANAGER"
+install_deps "$PKG_MANAGER"
 
 log "[2/5] Instalando just..."
 if ! command -v just &>/dev/null; then

@@ -1,10 +1,12 @@
 from datetime import datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.core.jwt_connections import (
     create_access_token,
@@ -14,16 +16,21 @@ from app.core.jwt_connections import (
     verify_password,
 )
 from app.db.sql_connections import Document, User, get_db
-from app.services.minio_connection import (
+from app.db.services.minio_connection import (
     delete_pdf,
     delete_pdfs,
     get_presigned_url,
     upload_pdf,
+    get_pdf_stream,
 )
-from app.services.pdf_validator import validate_pdf
-from app.services.rabbitmq_connection import enqueue_pdf
+from app.db.services.pdf_validator import validate_pdf
+from app.db.services.rabbitmq_connection import enqueue_pdf
 
 router = APIRouter()
+
+
+def _doc_object_key(doc: Document) -> str:
+    return cast(str, doc.object_key)
 
 
 # ================================================================
@@ -146,9 +153,22 @@ def download_document(
     db: Session = Depends(get_db),
 ):
     doc = _get_own_document(document_id, user_id, db)
-    url = get_presigned_url(doc.object_key)
-    return RedirectResponse(url)
+    obj = get_pdf_stream(_doc_object_key(doc))
 
+    headers = {
+        "Content-Disposition": f'attachment; filename="{doc.filename}"'
+    }
+
+    def _close():
+        obj.close()
+        obj.release_conn()
+
+    return StreamingResponse(
+        obj.stream(32 * 1024),
+        media_type="application/pdf",
+        headers=headers,
+        background=BackgroundTask(_close),
+    )
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
@@ -157,7 +177,7 @@ def delete_document(
     db: Session = Depends(get_db),
 ):
     doc = _get_own_document(document_id, user_id, db)
-    delete_pdf(doc.object_key)
+    delete_pdf(_doc_object_key(doc))
     db.delete(doc)
     db.commit()
 
@@ -175,7 +195,7 @@ def delete_documents_batch(
     )
     if len(docs) != len(body.document_ids):
         raise HTTPException(status_code=404, detail="Uno o más documentos no encontrados")
-    delete_pdfs([d.object_key for d in docs])
+    delete_pdfs([_doc_object_key(d) for d in docs])
     for doc in docs:
         db.delete(doc)
     db.commit()
@@ -220,7 +240,7 @@ def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     # Los documentos en MinIO se eliminan en cascada por la relación ORM
-    keys = [d.object_key for d in user.documents]
+    keys = [_doc_object_key(d) for d in user.documents]
     if keys:
         delete_pdfs(keys)
     db.delete(user)
@@ -255,7 +275,7 @@ def admin_delete_document(
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    delete_pdf(doc.object_key)
+    delete_pdf(_doc_object_key(doc))
     db.delete(doc)
     db.commit()
 

@@ -39,7 +39,7 @@ die()  { echo "$(ts) ERROR $*" >&2; logger -t "$LOG_TAG" -p user.err    -- "$*" 
 
 # ── Cargar config ─────────────────────────────────────────
 [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
-PDA_REGISTRY="${PDA_REGISTRY:-xavierhuerta}"
+PDA_REGISTRY="${PDA_REGISTRY:-pdanodos}"
 
 # ── Tailscale helpers ─────────────────────────────────────
 ts_status()    { tailscale status --json 2>/dev/null; }

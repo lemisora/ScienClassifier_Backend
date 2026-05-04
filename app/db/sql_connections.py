@@ -2,10 +2,10 @@ import os
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey,
+    Boolean, DateTime, ForeignKey,
     Integer, String, Text, create_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -58,44 +58,52 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True)
-    username = Column(String(64), unique=True, nullable=False)
-    password_hash = Column(String(128), nullable=False)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    documents = relationship("Document", back_populates="owner", cascade="all, delete-orphan")
+    documents: Mapped[list["Document"]] = relationship(
+        "Document",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
 
 
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    filename = Column(String(255), nullable=False)
-    object_key = Column(String(512), nullable=False)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-    status = Column(String(16), nullable=False, default="pending")  # pending | processing | done | error
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | processing | done | error
 
     # Campos para APA7
-    title = Column(String(512), nullable=True)
-    authors = Column(Text, nullable=True)
-    year = Column(Integer, nullable=True)
-    journal = Column(String(256), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    authors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    journal: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
-    owner = relationship("User", back_populates="documents")
-    categories = relationship("DocumentCategory", back_populates="document", cascade="all, delete-orphan")
+    owner: Mapped["User"] = relationship("User", back_populates="documents")
+    categories: Mapped[list["DocumentCategory"]] = relationship(
+        "DocumentCategory",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
 
 
 class DocumentCategory(Base):
     __tablename__ = "document_categories"
 
-    id = Column(Integer, primary_key=True)
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    category = Column(String(128), nullable=False)
-    score = Column(Integer, nullable=False)  # 0-100 (porcentaje)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("documents.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(128), nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-100 (porcentaje)
 
-    document = relationship("Document", back_populates="categories")
+    document: Mapped["Document"] = relationship("Document", back_populates="categories")
 
 
 def create_tables() -> None:
