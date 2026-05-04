@@ -25,7 +25,7 @@ set -euo pipefail
 # ── Configuración ─────────────────────────────────────────
 # Usuario de Docker Hub donde están las imágenes del proyecto.
 # El agente usa esto al generar el .env.
-REGISTRY="xavierhuerta"
+REGISTRY="pdanodos"
 
 REPO_URL="https://github.com/lemisora/ScienClassifier_Backend.git"
 INSTALL_DIR="/opt/scienclassifier"
