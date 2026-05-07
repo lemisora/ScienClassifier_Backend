@@ -11,9 +11,11 @@
 #   o clonar el repo primero y correr desde ahí.
 #
 # Lo que hace este script:
+#   - Mueve Docker data-root a /srv (evita llenar /var en VMs pequeñas)
+#   - Login a Docker Hub si DOCKER_HUB_TOKEN está exportado
 #   - Instala jq, git, curl, just
 #   - Clona / actualiza el repo en /opt/scienclassifier
-#   - Abre los puertos necesarios en UFW (si está activo)
+#   - Abre los puertos necesarios (UFW o nftables según lo disponible)
 #   - Instala y arranca el servicio pda-agent (systemd)
 #
 # El agente detecta automáticamente los otros nodos y forma
@@ -23,12 +25,11 @@
 set -euo pipefail
 
 # ── Configuración ─────────────────────────────────────────
-# Usuario de Docker Hub donde están las imágenes del proyecto.
-# El agente usa esto al generar el .env.
 REGISTRY="pdanodos"
-
+BRANCH="testing_VMs_tailscale"
 REPO_URL="https://github.com/lemisora/ScienClassifier_Backend.git"
 INSTALL_DIR="/opt/scienclassifier"
+DOCKER_DATA_ROOT="/srv/docker"
 # ─────────────────────────────────────────────────────────
 
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -90,6 +91,46 @@ command -v tailscale &>/dev/null || die "Tailscale no instalado."
 docker info &>/dev/null          || die "Docker no está corriendo (¿falta 'sudo usermod -aG docker \$USER'?)."
 tailscale status &>/dev/null     || die "Tailscale no está conectado. Correr: tailscale up --authkey=..."
 
+# ── Configurar Docker data-root en /srv ───────────────────
+# /var suele ser una partición pequeña en VMs; /srv tiene más espacio.
+configure_docker_dataroot() {
+    local cfg=/etc/docker/daemon.json
+
+    if [[ -f "$cfg" ]] && grep -q '"data-root"' "$cfg" 2>/dev/null; then
+        log "Docker data-root ya configurado ($(jq -r '."data-root"' "$cfg"))."
+        return
+    fi
+
+    log "Configurando Docker data-root → $DOCKER_DATA_ROOT..."
+    sudo mkdir -p "$DOCKER_DATA_ROOT"
+    echo "{\"data-root\": \"$DOCKER_DATA_ROOT\"}" | sudo tee "$cfg" > /dev/null
+
+    if [[ -d /var/lib/docker ]] && sudo ls /var/lib/docker &>/dev/null; then
+        log "Moviendo datos Docker existentes a $DOCKER_DATA_ROOT..."
+        sudo systemctl stop docker.socket docker.service 2>/dev/null || true
+        sudo rsync -a /var/lib/docker/ "$DOCKER_DATA_ROOT/" 2>/dev/null \
+            || sudo cp -a /var/lib/docker/. "$DOCKER_DATA_ROOT/"
+        sudo systemctl start docker
+    else
+        sudo systemctl restart docker
+    fi
+    log "Docker reiniciado con data-root $DOCKER_DATA_ROOT."
+}
+configure_docker_dataroot
+
+# ── Login a Docker Hub (opcional) ─────────────────────────
+# Exporta DOCKER_HUB_TOKEN antes de correr el bootstrap para
+# que el manager tenga credenciales al hacer --with-registry-auth.
+# Ejemplo: export DOCKER_HUB_TOKEN="dckr_pat_xxx"
+if [[ -n "${DOCKER_HUB_TOKEN:-}" ]]; then
+    log "Iniciando sesión en Docker Hub ($REGISTRY)..."
+    echo "$DOCKER_HUB_TOKEN" | docker login -u "$REGISTRY" --password-stdin \
+        && log "Docker Hub login exitoso." \
+        || log "WARN: Docker Hub login falló — las imágenes deben ser públicas."
+else
+    log "DOCKER_HUB_TOKEN no definido. Si las imágenes son privadas: docker login -u $REGISTRY"
+fi
+
 # ── [1/5] Instalar dependencias ──────────────────────────
 log "[1/5] Actualizando paquetes e instalando dependencias..."
 PKG_MANAGER="$(detect_pkg_manager)"
@@ -103,37 +144,51 @@ else
     log "       just ya instalado: $(just --version)"
 fi
 
-# ── [2/5] Clonar o actualizar repo ───────────────────────
+# ── [3/5] Clonar o actualizar repo ───────────────────────
 log "[3/5] Preparando repositorio en $INSTALL_DIR..."
 if [[ -d "$INSTALL_DIR/.git" ]]; then
-    sudo git -C "$INSTALL_DIR" pull --ff-only origin main
-    log "       Repo actualizado."
+    sudo git -C "$INSTALL_DIR" fetch origin
+    sudo git -C "$INSTALL_DIR" checkout "$BRANCH"
+    sudo git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
+    log "       Repo actualizado (rama $BRANCH)."
 else
-    sudo git clone --branch testing_VMs_tailscale "$REPO_URL" "$INSTALL_DIR"
-    log "       Repo clonado."
+    sudo git clone --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+    log "       Repo clonado (rama $BRANCH)."
 fi
 sudo chown -R "$(id -u):$(id -g)" "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/deploy/node-agent.sh"
 
-# ── [3/5] Guardar configuración del agente ───────────────
+# ── [4/5] Guardar configuración del agente ───────────────
 log "[4/5] Guardando configuración del agente..."
 sudo mkdir -p /var/lib/pda-cluster
 echo "PDA_REGISTRY=$REGISTRY" | sudo tee /var/lib/pda-cluster/config.env > /dev/null
 
-# ── [4/5] Abrir puertos en UFW ───────────────────────────
-if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
-    log "       Configurando UFW..."
-    sudo ufw allow in on tailscale0      comment "Tailscale (todo)" 2>/dev/null || true
-    sudo ufw allow 2377/tcp              comment "Docker Swarm control"
-    sudo ufw allow 7946/tcp              comment "Docker Swarm gossip TCP"
-    sudo ufw allow 7946/udp              comment "Docker Swarm gossip UDP"
-    sudo ufw allow 4789/udp              comment "Docker overlay VXLAN"
-    sudo ufw allow 9999/tcp              comment "PDA agent state API"
-    sudo ufw reload
-    log "       UFW configurado."
-else
-    log "       UFW no activo — saltando reglas de firewall."
-fi
+# ── [4/5] Abrir puertos (UFW o nftables) ─────────────────
+configure_firewall() {
+    local tcp_ports=(2377 7946 9999 80)
+    local udp_ports=(7946 4789)
+
+    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+        log "       Configurando UFW..."
+        sudo ufw allow in on tailscale0 comment "Tailscale" 2>/dev/null || true
+        for p in "${tcp_ports[@]}"; do sudo ufw allow "$p/tcp" comment "ScienClassifier" 2>/dev/null || true; done
+        for p in "${udp_ports[@]}"; do sudo ufw allow "$p/udp" comment "ScienClassifier" 2>/dev/null || true; done
+        sudo ufw reload
+        log "       UFW configurado."
+    elif command -v nft &>/dev/null && sudo nft list ruleset 2>/dev/null | grep -q "filter"; then
+        log "       Configurando nftables..."
+        for p in "${tcp_ports[@]}"; do
+            sudo nft add rule inet filter input tcp dport "$p" accept 2>/dev/null || true
+        done
+        for p in "${udp_ports[@]}"; do
+            sudo nft add rule inet filter input udp dport "$p" accept 2>/dev/null || true
+        done
+        log "       nftables configurado."
+    else
+        log "       Sin firewall activo — omitiendo reglas."
+    fi
+}
+configure_firewall
 
 # ── [5/5] Instalar y arrancar servicio systemd ───────────
 log "[5/5] Instalando servicio pda-agent..."
@@ -153,8 +208,12 @@ echo ""
 echo "Estado del cluster (cuando esté listo):"
 echo "  curl -s http://localhost:9999/state.json | jq ."
 echo ""
-echo "IMPORTANTE si este nodo será el manager:"
-echo "  Asegurarte de haber hecho 'docker login -u $REGISTRY' antes."
-echo "  El manager es el nodo con la IP Tailscale más baja."
+echo "El cluster arranca solo cuando hay 3 nodos en Tailscale."
 echo ""
-echo "El cluster arranca solo cuando hay $((3)) nodos conectados a Tailscale."
+echo "Si las imágenes de Docker Hub son privadas, exporta el token ANTES"
+echo "de correr el bootstrap en el nodo manager (IP Tailscale más baja):"
+echo "  export DOCKER_HUB_TOKEN=\"dckr_pat_xxxx\""
+echo "  bash bootstrap.sh"
+echo ""
+echo "O haz login manual antes de que el agente despliegue:"
+echo "  docker login -u $REGISTRY"

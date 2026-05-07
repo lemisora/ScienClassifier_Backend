@@ -7,7 +7,9 @@ import psycopg2
 from fastapi import FastAPI
 
 from app.api.endpoints import router
-from app.db.sql_connections import create_tables
+from app.api.monitor import router as monitor_router
+from app.core.jwt_connections import hash_password
+from app.db.sql_connections import SessionLocal, User, create_tables
 from app.db.services.minio_connection import ensure_bucket
 
 log = logging.getLogger(__name__)
@@ -65,12 +67,30 @@ def _wait_for_minio(retries: int = 60, delay: int = 5) -> None:
             time.sleep(delay)
 
 
+def _seed_admin() -> None:
+    """Crea el usuario admin por defecto si no existe ningún admin en la BD."""
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    password = os.getenv("ADMIN_PASSWORD", "admin1234")
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter(User.is_admin.is_(True)).first():
+            db.add(User(username=username, password_hash=hash_password(password), is_admin=True))
+            db.commit()
+            log.info("Admin user '%s' created.", username)
+    except Exception as e:
+        log.warning("Could not seed admin user: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _wait_for_db()
+    _seed_admin()
     _wait_for_minio()
     yield
 
 
 app = FastAPI(title="ScienClassifier API", lifespan=lifespan)
 app.include_router(router, prefix="/api")
+app.include_router(monitor_router, prefix="/api")
