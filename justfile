@@ -390,3 +390,46 @@ agent-pending:
         | python3 -c "import sys,json; s=json.load(sys.stdin); p=s.get('pending_nodes',[]); \
           print('Pendientes:', p if p else 'ninguno'); \
           print('Activos:   ', s.get('active_nodes',[]))"
+
+# ==========================================
+# PDA Node Agent — versión LAN (sin Tailscale)
+# ==========================================
+
+# Corre el bootstrap LAN en este nodo (ejecutar en los 3 nodos)
+bootstrap-lan:
+    bash deploy/bootstrap-lan.sh
+
+# Logs del agente LAN en tiempo real
+lan-logs:
+    sudo journalctl -fu pda-agent-lan
+
+# Reiniciar el agente LAN
+lan-restart:
+    sudo systemctl restart pda-agent-lan
+
+# Estado del agente LAN
+lan-agent-status:
+    sudo systemctl status pda-agent-lan --no-pager
+
+# Nodos descubiertos por el agente LAN (escanea la subred ahora)
+lan-scan:
+    #!/usr/bin/env bash
+    MY_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ { for(i=1;i<=NF;i++) if($i=="src") print $(i+1) }' | head -1)
+    SUBNET=$(echo "$MY_IP" | cut -d. -f1-3)
+    echo "Escaneando ${SUBNET}.0/24 en puerto 9998..."
+    TMP=$(mktemp -d)
+    for i in $(seq 1 254); do
+        (curl -sf --max-time 0.5 "http://${SUBNET}.${i}:9998/" > "${TMP}/${i}.json" 2>/dev/null || true) &
+    done
+    wait
+    FOUND=$(cat "${TMP}"/*.json 2>/dev/null | jq -s 'sort_by(.ip | split(".") | map(tonumber))' 2>/dev/null)
+    rm -rf "$TMP"
+    if [[ -z "$FOUND" || "$FOUND" == "[]" ]]; then
+        echo "Sin nodos encontrados (¿está el agente corriendo en los otros nodos?)"
+    else
+        echo "$FOUND"
+    fi
+
+# Detener el agente LAN
+lan-stop:
+    sudo systemctl stop pda-agent-lan

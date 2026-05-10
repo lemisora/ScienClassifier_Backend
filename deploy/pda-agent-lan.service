@@ -1,0 +1,24 @@
+[Unit]
+Description=PDA Node Agent LAN — autodescubrimiento y gestión del Swarm (sin Tailscale)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/scienclassifier/deploy/node-agent-lan.sh
+Restart=on-failure
+RestartSec=15
+StartLimitIntervalSec=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pda-agent
+
+User=root
+Group=root
+
+EnvironmentFile=-/var/lib/pda-cluster/config.env
+
+[Install]
+WantedBy=multi-user.target
