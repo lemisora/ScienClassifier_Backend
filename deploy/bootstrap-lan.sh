@@ -137,7 +137,7 @@ log "[3/5] Preparando repositorio en $INSTALL_DIR..."
 if [[ -d "$INSTALL_DIR/.git" ]]; then
     sudo git -C "$INSTALL_DIR" fetch origin
     sudo git -C "$INSTALL_DIR" checkout "$BRANCH"
-    sudo git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
+    sudo git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
     log "       Repo actualizado (rama $BRANCH)."
 else
     sudo git clone --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
