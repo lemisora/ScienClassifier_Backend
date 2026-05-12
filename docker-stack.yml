@@ -299,6 +299,7 @@ services:
           - node.hostname == ${NODE1_HOSTNAME}
       restart_policy:
         condition: on-failure
+        delay: 5s
 
   rabbitmq2:
     image: rabbitmq:3.13-management
@@ -321,6 +322,7 @@ services:
           - node.hostname == ${NODE2_HOSTNAME}
       restart_policy:
         condition: on-failure
+        delay: 5s
 
   rabbitmq3:
     image: rabbitmq:3.13-management
@@ -343,6 +345,7 @@ services:
           - node.hostname == ${NODE3_HOSTNAME}
       restart_policy:
         condition: on-failure
+        delay: 5s
 
   # ================================================================
   # FastAPI — stateless, una instancia por nodo (mode: global)
@@ -365,6 +368,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
+      MANAGER_IP: ${MANAGER_IP}
     networks:
       - red_distribuida
     deploy:
