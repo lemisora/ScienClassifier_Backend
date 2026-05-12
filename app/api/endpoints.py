@@ -266,6 +266,18 @@ def update_user(
     return user
 
 
+@router.get("/admin/users/{user_id}/documents", response_model=list[DocumentOut])
+def list_user_documents(
+    user_id: int,
+    _: int = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return user.documents
+
+
 @router.delete("/admin/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_document(
     document_id: int,
