@@ -109,7 +109,7 @@ sudo firewall-cmd --permanent --add-port=80/tcp     # nginx
 # 
 # Removido dado que Docker no puede iniciar si antes se añade a la zona trusted
 # sudo firewall-cmd --permanent --zone=trusted --add-interface=docker0
-sudo firewall-cmd --permanent --zone=trusted --add-interface=docker_gwbridge
+# sudo firewall-cmd --permanent --zone=trusted --add-interface=docker_gwbridge
 sudo firewall-cmd --permanent --zone=trusted --add-source=10.0.0.0/8
 
 # ==========================================
