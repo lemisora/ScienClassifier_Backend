@@ -15,7 +15,7 @@ from app.core.jwt_connections import (
     hash_password,
     verify_password,
 )
-from app.db.sql_connections import Document, User, get_db
+from app.db.sql_connections import Document, Setting, User, get_db
 from app.db.services.minio_connection import (
     delete_pdf,
     delete_pdfs,
@@ -83,6 +83,17 @@ class UpdateUserRequest(BaseModel):
 
 class DocumentIdsRequest(BaseModel):
     document_ids: list[int]
+
+
+class ClassifierModeRequest(BaseModel):
+    mode: str
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        if v not in {"keyword", "zero_shot"}:
+            raise ValueError("Modo inválido. Usa 'keyword' o 'zero_shot'.")
+        return v
 
 
 # ================================================================
@@ -224,6 +235,27 @@ def generate_apa7(
 # ================================================================
 # Admin
 # ================================================================
+
+@router.get("/admin/settings/classifier")
+def get_classifier_mode(_: int = Depends(get_current_admin), db: Session = Depends(get_db)):
+    setting = db.query(Setting).filter(Setting.key == "classifier_mode").first()
+    return {"mode": setting.value if setting else "keyword"}
+
+
+@router.put("/admin/settings/classifier")
+def set_classifier_mode(
+    body: ClassifierModeRequest,
+    _: int = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    setting = db.query(Setting).filter(Setting.key == "classifier_mode").first()
+    if setting:
+        setting.value = body.mode
+    else:
+        db.add(Setting(key="classifier_mode", value=body.mode))
+    db.commit()
+    return {"mode": body.mode}
+
 
 @router.get("/admin/users", response_model=list[UserOut])
 def list_users(_: int = Depends(get_current_admin), db: Session = Depends(get_db)):

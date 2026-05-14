@@ -7,7 +7,7 @@ import pika
 import pdfplumber
 from io import BytesIO
 
-from app.db.sql_connections import Document, DocumentCategory, SessionLocal
+from app.db.sql_connections import Document, DocumentCategory, SessionLocal, Setting
 from app.db.services.minio_connection import get_client, BUCKET
 from worker.classifier import classify
 
@@ -17,6 +17,11 @@ log = logging.getLogger(__name__)
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://admin:admin_password_segura@localhost:5672/")
 QUEUE = "pdf_processing"
 RETRY_DELAY = 5
+
+
+def _get_classifier_mode(db) -> str:
+    setting = db.query(Setting).filter(Setting.key == "classifier_mode").first()
+    return setting.value if setting else "keyword"
 
 
 def process(body: bytes) -> None:
@@ -35,8 +40,8 @@ def process(body: bytes) -> None:
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
 
-    # Clasificar
-    result = classify(text)
+    # Clasificar con el modo configurado por el admin
+    result = classify(text, mode=_get_classifier_mode(db))
 
     # Guardar en PostgreSQL
     db = SessionLocal()

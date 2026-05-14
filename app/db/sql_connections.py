@@ -106,6 +106,13 @@ class DocumentCategory(Base):
     document: Mapped["Document"] = relationship("Document", back_populates="categories")
 
 
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(256), nullable=False)
+
+
 def create_tables() -> None:
     Base.metadata.create_all(bind=engine)
 

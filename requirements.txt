@@ -13,3 +13,4 @@ langdetect
 scikit-learn
 numpy
 httpx
+transformers
