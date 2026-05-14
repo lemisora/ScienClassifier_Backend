@@ -105,7 +105,7 @@ services:
     hostname: patroni1
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
+      ETCD_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
@@ -138,7 +138,7 @@ services:
     hostname: patroni2
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
+      ETCD_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
@@ -167,7 +167,7 @@ services:
     hostname: patroni3
     environment:
       SCOPE: ${SCOPE}
-      ETCD3_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
+      ETCD_HOSTS: "etcd1:${ETCD3_PORT},etcd2:${ETCD3_PORT},etcd3:${ETCD3_PORT}"
       ALLOW_NOSSL: "true"
       PGROOT: ${PGROOT}
       PGUSER_SUPERUSER: ${PGUSER_SUPERUSER}
