@@ -144,6 +144,37 @@ async def _snapshot() -> dict:
     }
 
 
+@router.get("/admin/worker/status")
+async def worker_status(token: str = Query(...)):
+    payload = decode_token(token)
+    if not payload.get("admin"):
+        raise HTTPException(status_code=403, detail="Se requiere rol admin")
+
+    db_stats, rmq = await asyncio.gather(
+        asyncio.to_thread(_db_stats),
+        _rabbitmq_stats(),
+    )
+    setting = SessionLocal()
+    try:
+        from app.db.sql_connections import Setting
+        s = setting.query(Setting).filter(Setting.key == "classifier_mode").first()
+        mode = s.value if s else "keyword"
+    finally:
+        setting.close()
+
+    return {
+        "classifier_mode":  mode,
+        "workers_active":   rmq["consumers"],
+        "queue_depth":      rmq["messages_ready"],
+        "processing":       rmq["messages_unacknowledged"],
+        "rabbitmq_ok":      rmq["ok"],
+        "docs_pending":     db_stats["by_status"]["pending"],
+        "docs_processing":  db_stats["by_status"]["processing"],
+        "docs_done":        db_stats["by_status"]["done"],
+        "docs_error":       db_stats["by_status"]["error"],
+    }
+
+
 @router.get("/admin/monitor/stream")
 async def monitor_stream(token: str = Query(...)):
     payload = decode_token(token)
