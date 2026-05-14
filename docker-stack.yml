@@ -30,6 +30,7 @@ services:
       - --initial-cluster=etcd1=http://etcd1:${ETCD3_PEER_PORT},etcd2=http://etcd2:${ETCD3_PEER_PORT},etcd3=http://etcd3:${ETCD3_PEER_PORT}
       - --initial-cluster-token=${ETCD3_CLUSTER_TOKEN}
       - --initial-cluster-state=new
+      - --enable-v2=true
     volumes:
       - etcd1_data:/etcd-data
     networks:
