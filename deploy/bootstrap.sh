@@ -26,7 +26,7 @@ set -euo pipefail
 
 # ── Configuración ─────────────────────────────────────────
 REGISTRY="pdanodos"
-BRANCH="testing_VMs_tailscale"
+BRANCH="recover-fix"
 REPO_URL="https://github.com/lemisora/ScienClassifier_Backend.git"
 INSTALL_DIR="/opt/scienclassifier"
 DOCKER_DATA_ROOT="/srv/docker"
@@ -165,7 +165,7 @@ echo "PDA_REGISTRY=$REGISTRY" | sudo tee /var/lib/pda-cluster/config.env > /dev/
 
 # ── [4/5] Abrir puertos (UFW o nftables) ─────────────────
 configure_firewall() {
-    local tcp_ports=(2377 7946 9999 80)
+    local tcp_ports=(2377 7946 9999 80 8008 9001)
     local udp_ports=(7946 4789)
 
     if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then

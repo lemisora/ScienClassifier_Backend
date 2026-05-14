@@ -52,7 +52,7 @@ ts_nodes() {
     ts_status | jq -c '
         [.Self] + (.Peer // {} | to_entries | map(.value) | map(select(.Online == true)))
         | map({ hostname: .HostName, ip: .TailscaleIPs[0] })
-        | sort_by(.ip)
+        | sort_by(.ip | split(".") | map(tonumber))
     '
 }
 
@@ -115,7 +115,7 @@ write_state() {
 
 # Servidor HTTP mínimo que sirve state.json en STATE_PORT.
 serve_state() {
-    pkill -f "pda-state-server" 2>/dev/null || true
+    fuser -k 9999/tcp 2>/dev/null || true
     sleep 1
     python3 - <<'PYEOF' &
 import http.server, pathlib, os
@@ -250,7 +250,7 @@ mgr_init_db() {
             log "FastAPI reiniciado para reconectar con credenciales correctas."
             return 0
         }
-        (( attempt++ ))
+        attempt=$(( attempt + 1 ))
         log "Patroni aún no listo (intento $attempt/$max) — reintentando en 10s..."
         sleep 10
     done
