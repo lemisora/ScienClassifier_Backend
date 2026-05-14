@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -15,7 +16,6 @@ from app.core.jwt_connections import (
     hash_password,
     verify_password,
 )
-from sqlalchemy import func
 from app.db.sql_connections import Category, Document, DocumentCategory, Setting, User, get_db
 from app.db.services.minio_connection import (
     delete_pdf,

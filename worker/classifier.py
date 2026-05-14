@@ -123,11 +123,13 @@ def _score_zero_shot(text: str,
     snippet = text[:1500].strip()
     text_emb = model.encode(snippet, convert_to_tensor=True)
 
-    descriptions = _CATEGORY_DESCRIPTIONS
-    if enabled_categories is not None:
-        descriptions = {k: v for k, v in _CATEGORY_DESCRIPTIONS.items()
-                        if k in enabled_categories}
+    if enabled_categories is None:
+        # Usar los embeddings pre-calculados al cargar el modelo
+        similarities = st_util.cos_sim(text_emb, cat_embeddings)[0].tolist()
+        return dict(zip(_CATEGORY_DESCRIPTIONS.keys(), similarities))
 
+    descriptions = {k: v for k, v in _CATEGORY_DESCRIPTIONS.items()
+                    if k in enabled_categories}
     if not descriptions:
         return {}
 
