@@ -19,9 +19,13 @@ QUEUE = "pdf_processing"
 RETRY_DELAY = 5
 
 
-def _get_classifier_mode(db) -> str:
-    setting = db.query(Setting).filter(Setting.key == "classifier_mode").first()
-    return setting.value if setting else "keyword"
+def _get_classifier_mode() -> str:
+    db = SessionLocal()
+    try:
+        setting = db.query(Setting).filter(Setting.key == "classifier_mode").first()
+        return setting.value if setting else "keyword"
+    finally:
+        db.close()
 
 
 def process(body: bytes) -> None:
@@ -41,7 +45,7 @@ def process(body: bytes) -> None:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
 
     # Clasificar con el modo configurado por el admin
-    result = classify(text, mode=_get_classifier_mode(db))
+    result = classify(text, mode=_get_classifier_mode())
 
     # Guardar en PostgreSQL
     db = SessionLocal()
