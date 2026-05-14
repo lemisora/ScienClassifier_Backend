@@ -49,11 +49,29 @@ ts_self_ip()   { ts_status | jq -r '.Self.TailscaleIPs[0]'; }
 # Devuelve [{hostname, ip}] de todos los nodos online, ordenados por IP.
 # El primer elemento (menor IP) será siempre el manager.
 ts_nodes() {
-    ts_status | jq -c '
+    local tmp; tmp=$(mktemp)
+
+    # Obtiene todos los peers Tailscale online (self + peers)
+    local all_peers
+    all_peers=$(ts_status | jq -c '
         [.Self] + (.Peer // {} | to_entries | map(.value) | map(select(.Online == true)))
         | map({ hostname: .HostName, ip: .TailscaleIPs[0] })
-        | sort_by(.ip | split(".") | map(tonumber))
-    '
+        | .[]
+    ')
+
+    # Solo son candidatos los que responden en STATE_PORT (corren el agente)
+    while IFS= read -r entry; do
+        local ip; ip=$(echo "$entry" | jq -r '.ip')
+        (
+            if curl -sf --max-time 3 "http://$ip:$STATE_PORT/" > /dev/null 2>&1; then
+                echo "$entry" >> "$tmp"
+            fi
+        ) &
+    done <<< "$all_peers"
+    wait
+
+    jq -sc 'sort_by(.ip | split(".") | map(tonumber))' "$tmp"
+    rm -f "$tmp"
 }
 
 ts_count()   { ts_nodes | jq 'length'; }
@@ -69,6 +87,23 @@ arr_to_json() {
 
 # Verifica si el JSON array $1 contiene la string $2.
 json_has() { jq -e --arg v "$2" 'contains([$v])' <<< "$1" > /dev/null 2>&1; }
+
+# Servidor mínimo que responde en STATE_PORT para que otros nodos nos detecten.
+# Se levanta en todos los nodos al arrancar. El manager lo reemplaza con serve_state().
+serve_announce() {
+    fuser -k "$STATE_PORT/tcp" 2>/dev/null || true
+    sleep 1
+    python3 -c "
+import http.server, os
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers()
+    def log_message(self, *_): pass
+os.setpgrp()
+http.server.HTTPServer(('0.0.0.0', $STATE_PORT), H).serve_forever()
+" &
+    log "Announce server escuchando en :$STATE_PORT"
+}
 
 # ── Estado compartido ─────────────────────────────────────
 # El manager escribe state.json y lo sirve en :9999.
@@ -470,6 +505,9 @@ main() {
     my_hn=$(ts_self_name)
     my_ip=$(ts_self_ip)
     log "Nodo: $my_hn  |  IP Tailscale: $my_ip"
+
+    # Levantar announce server para que otros nodos nos detecten en STATE_PORT
+    serve_announce
 
     # Esperar MIN_NODES nodos antes de elegir rol.
     # Esto garantiza que todos ven el mismo conjunto de nodos
