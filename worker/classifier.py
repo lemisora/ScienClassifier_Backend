@@ -61,8 +61,13 @@ def classify(text: str, mode: str = "keyword") -> dict:
     clean = _clean_text(text)
 
     if mode == "zero_shot":
-        scores = _score_zero_shot(text)
-        threshold = _ZERO_SHOT_THRESHOLD
+        try:
+            scores = _score_zero_shot(text)
+            threshold = _ZERO_SHOT_THRESHOLD
+        except Exception as exc:
+            log.warning("Zero-shot falló, usando keyword como fallback: %s", exc)
+            scores = _score_keyword(clean)
+            threshold = _KEYWORD_THRESHOLD
     else:
         scores = _score_keyword(clean)
         threshold = _KEYWORD_THRESHOLD
@@ -110,18 +115,14 @@ def _score_zero_shot(text: str) -> dict[str, float]:
     """
     Usa sentence-transformers (all-MiniLM-L6-v2, 22MB) para clasificar
     mediante similitud coseno entre el texto y las descripciones de cada categoría.
-    Fallback a keyword si el modelo falla.
+    Lanza excepción si el modelo falla (el caller maneja el fallback con el threshold correcto).
     """
-    try:
-        from sentence_transformers import util as st_util
-        model, cat_embeddings = _get_st_model()
-        snippet = text[:1500].strip()
-        text_emb = model.encode(snippet, convert_to_tensor=True)
-        similarities = st_util.cos_sim(text_emb, cat_embeddings)[0].tolist()
-        return dict(zip(_CATEGORY_DESCRIPTIONS.keys(), similarities))
-    except Exception as exc:
-        log.error("Sentence-transformers falló, usando keyword como fallback: %s", exc)
-        return _score_keyword(_clean_text(text))
+    from sentence_transformers import util as st_util
+    model, cat_embeddings = _get_st_model()
+    snippet = text[:1500].strip()
+    text_emb = model.encode(snippet, convert_to_tensor=True)
+    similarities = st_util.cos_sim(text_emb, cat_embeddings)[0].tolist()
+    return dict(zip(_CATEGORY_DESCRIPTIONS.keys(), similarities))
 
 
 # ── Extracción de metadatos ────────────────────────────────────────────────────
