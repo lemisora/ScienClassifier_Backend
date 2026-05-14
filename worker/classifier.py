@@ -7,35 +7,35 @@ log = logging.getLogger(__name__)
 
 # Thresholds por modo
 _KEYWORD_THRESHOLD = 0.08   # ~4+ coincidencias de ~50 keywords
-_ZERO_SHOT_THRESHOLD = 0.30  # probabilidad NLI independiente
+_ZERO_SHOT_THRESHOLD = 0.15  # similitud coseno — relevante > 0.15, no relacionado < 0.05
 
-# Etiquetas en inglés para el modelo NLI (entiende mejor inglés)
-_LABELS_EN: dict[str, str] = {
-    "matemáticas":      "mathematics and statistics",
-    "física":           "physics",
-    "química":          "chemistry",
-    "biología":         "biology and life sciences",
-    "computación":      "computer science and software engineering",
-    "ingeniería":       "engineering and technology",
-    "medicina":         "medicine and health sciences",
-    "ciencias sociales": "social sciences and humanities",
+# Descripciones semánticas por categoría (usadas para embeddings)
+_CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "matemáticas":       "mathematics algebra calculus statistics probability theorems proofs equations topology numerical analysis linear algebra",
+    "física":            "physics quantum mechanics relativity thermodynamics electromagnetism particles waves astrophysics Hamiltonian Schrödinger equation nuclear",
+    "química":           "chemistry molecules reactions synthesis organic compounds polymers catalysts spectroscopy electrochemistry thermochemistry bonds reagents",
+    "biología":          "biology cells DNA proteins evolution organisms genetics ecosystems metabolism species genome bacteria viruses reproduction",
+    "computación":       "computer science algorithms machine learning neural networks deep learning software databases artificial intelligence programming data structures",
+    "ingeniería":        "engineering design structures circuits automation manufacturing robotics materials sensors control systems CAD mechanical hydraulic",
+    "medicina":          "medicine disease diagnosis treatment patients clinical trials drugs surgery vaccines oncology hospital symptoms pathology biomarkers",
+    "ciencias sociales": "social sciences society culture economics politics psychology behavior education sociology anthropology democracy inequality",
 }
 
-_zero_shot_pipeline = None
+_st_model = None
+_cat_embeddings = None
 
 
-def _get_zero_shot():
-    global _zero_shot_pipeline
-    if _zero_shot_pipeline is None:
-        from transformers import pipeline as hf_pipeline
-        log.info("Cargando modelo zero-shot (primera vez, puede tardar ~30s)...")
-        _zero_shot_pipeline = hf_pipeline(
-            "zero-shot-classification",
-            model="typeform/distilbert-base-uncased-mnli",
-            device=-1,  # CPU
+def _get_st_model():
+    global _st_model, _cat_embeddings
+    if _st_model is None:
+        from sentence_transformers import SentenceTransformer
+        log.info("Cargando modelo sentence-transformers all-MiniLM-L6-v2 (~22MB)...")
+        _st_model = SentenceTransformer("all-MiniLM-L6-v2")
+        _cat_embeddings = _st_model.encode(
+            list(_CATEGORY_DESCRIPTIONS.values()), convert_to_tensor=True
         )
-        log.info("Modelo zero-shot listo.")
-    return _zero_shot_pipeline
+        log.info("Modelo listo.")
+    return _st_model, _cat_embeddings
 
 
 def _strip_cid(text: str) -> str:
@@ -108,35 +108,19 @@ def _score_keyword(text: str) -> dict[str, float]:
 
 def _score_zero_shot(text: str) -> dict[str, float]:
     """
-    Usa un modelo NLI (distilbert-base-uncased-mnli) para clasificación zero-shot.
-    Pasa los primeros ~1500 chars (abstract + intro) al modelo.
+    Usa sentence-transformers (all-MiniLM-L6-v2, 22MB) para clasificar
+    mediante similitud coseno entre el texto y las descripciones de cada categoría.
     Fallback a keyword si el modelo falla.
     """
     try:
-        clf = _get_zero_shot()
+        from sentence_transformers import util as st_util
+        model, cat_embeddings = _get_st_model()
         snippet = text[:1500].strip()
-        en_labels = list(_LABELS_EN.values())
-
-        result = clf(
-            snippet,
-            candidate_labels=en_labels,
-            hypothesis_template="This scientific article is about {}.",
-            multi_label=True,
-        )
-
-        label_to_cat = {v: k for k, v in _LABELS_EN.items()}
-        scores: dict[str, float] = {}
-        for lbl, score in zip(result["labels"], result["scores"]):
-            if lbl in label_to_cat:
-                scores[label_to_cat[lbl]] = score
-
-        for cat in CATEGORIES:
-            scores.setdefault(cat, 0.0)
-
-        return scores
-
+        text_emb = model.encode(snippet, convert_to_tensor=True)
+        similarities = st_util.cos_sim(text_emb, cat_embeddings)[0].tolist()
+        return dict(zip(_CATEGORY_DESCRIPTIONS.keys(), similarities))
     except Exception as exc:
-        log.error("Zero-shot falló, usando keyword como fallback: %s", exc)
+        log.error("Sentence-transformers falló, usando keyword como fallback: %s", exc)
         return _score_keyword(_clean_text(text))
 
 
