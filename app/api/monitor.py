@@ -126,21 +126,33 @@ async def _agent_stats() -> dict:
     return empty
 
 
+def _classifier_mode() -> str:
+    db = SessionLocal()
+    try:
+        from app.db.sql_connections import Setting
+        s = db.query(Setting).filter(Setting.key == "classifier_mode").first()
+        return s.value if s else "keyword"
+    finally:
+        db.close()
+
+
 async def _snapshot() -> dict:
-    db_stats, rmq, patroni, minio, agent = await asyncio.gather(
+    db_stats, rmq, patroni, minio, agent, mode = await asyncio.gather(
         asyncio.to_thread(_db_stats),
         _rabbitmq_stats(),
         _patroni_stats(),
         _minio_stats(),
         _agent_stats(),
+        asyncio.to_thread(_classifier_mode),
     )
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "db":        db_stats,
-        "rabbitmq":  rmq,
-        "patroni":   patroni,
-        "minio":     minio,
-        "cluster":   agent,
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+        "db":              db_stats,
+        "rabbitmq":        rmq,
+        "patroni":         patroni,
+        "minio":           minio,
+        "cluster":         agent,
+        "classifier_mode": mode,
     }
 
 
