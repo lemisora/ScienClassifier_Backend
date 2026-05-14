@@ -113,8 +113,23 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(String(256), nullable=False)
 
 
+class Category(Base):
+    __tablename__ = "categories"
+
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 def create_tables() -> None:
     Base.metadata.create_all(bind=engine)
+
+
+def seed_categories(db) -> None:
+    from worker.keywords import CATEGORIES
+    for name in CATEGORIES:
+        if not db.query(Category).filter(Category.name == name).first():
+            db.add(Category(name=name, enabled=True))
+    db.commit()
 
 
 def get_db():

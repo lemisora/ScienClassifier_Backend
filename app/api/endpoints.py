@@ -15,7 +15,8 @@ from app.core.jwt_connections import (
     hash_password,
     verify_password,
 )
-from app.db.sql_connections import Document, Setting, User, get_db
+from sqlalchemy import func
+from app.db.sql_connections import Category, Document, DocumentCategory, Setting, User, get_db
 from app.db.services.minio_connection import (
     delete_pdf,
     delete_pdfs,
@@ -94,6 +95,18 @@ class ClassifierModeRequest(BaseModel):
         if v not in {"keyword", "zero_shot"}:
             raise ValueError("Modo inválido. Usa 'keyword' o 'zero_shot'.")
         return v
+
+
+class CategoryStatsOut(BaseModel):
+    name: str
+    enabled: bool
+    dominant_count: int
+
+    model_config = {"from_attributes": True}
+
+
+class CategoryPatchRequest(BaseModel):
+    enabled: bool
 
 
 # ================================================================
@@ -255,6 +268,88 @@ def set_classifier_mode(
         db.add(Setting(key="classifier_mode", value=body.mode))
     db.commit()
     return {"mode": body.mode}
+
+
+@router.get("/admin/categories", response_model=list[CategoryStatsOut])
+def list_categories(_: int = Depends(get_current_admin), db: Session = Depends(get_db)):
+    categories = db.query(Category).order_by(Category.name).all()
+
+    # Subconsulta: para cada document_id, score máximo entre sus categorías
+    max_scores = (
+        db.query(
+            DocumentCategory.document_id,
+            func.max(DocumentCategory.score).label("max_score"),
+        )
+        .group_by(DocumentCategory.document_id)
+        .subquery()
+    )
+
+    # Contar docs cuya categoría dominante es cada nombre
+    dominant_counts: dict[str, int] = {}
+    rows = (
+        db.query(DocumentCategory.category, func.count().label("cnt"))
+        .join(
+            max_scores,
+            (DocumentCategory.document_id == max_scores.c.document_id)
+            & (DocumentCategory.score == max_scores.c.max_score),
+        )
+        .group_by(DocumentCategory.category)
+        .all()
+    )
+    for row in rows:
+        dominant_counts[row.category] = row.cnt
+
+    return [
+        CategoryStatsOut(
+            name=cat.name,
+            enabled=cat.enabled,
+            dominant_count=dominant_counts.get(cat.name, 0),
+        )
+        for cat in categories
+    ]
+
+
+@router.patch("/admin/categories/{category_name}", response_model=CategoryStatsOut)
+def patch_category(
+    category_name: str,
+    body: CategoryPatchRequest,
+    _: int = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    cat = db.query(Category).filter(Category.name == category_name).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+    if not body.enabled:
+        # Deshabilitar: borrar docs cuya categoría dominante sea esta
+        max_scores = (
+            db.query(
+                DocumentCategory.document_id,
+                func.max(DocumentCategory.score).label("max_score"),
+            )
+            .group_by(DocumentCategory.document_id)
+            .subquery()
+        )
+        dominant_doc_ids = (
+            db.query(DocumentCategory.document_id)
+            .join(
+                max_scores,
+                (DocumentCategory.document_id == max_scores.c.document_id)
+                & (DocumentCategory.score == max_scores.c.max_score),
+            )
+            .filter(DocumentCategory.category == category_name)
+            .subquery()
+        )
+        docs = db.query(Document).filter(Document.id.in_(dominant_doc_ids)).all()
+        if docs:
+            delete_pdfs([_doc_object_key(d) for d in docs])
+            for doc in docs:
+                db.delete(doc)
+
+    cat.enabled = body.enabled
+    db.commit()
+
+    return CategoryStatsOut(name=cat.name, enabled=cat.enabled, dominant_count=0)
 
 
 @router.get("/admin/users", response_model=list[UserOut])

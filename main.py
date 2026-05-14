@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from app.api.endpoints import router
 from app.api.monitor import router as monitor_router
 from app.core.jwt_connections import hash_password
-from app.db.sql_connections import SessionLocal, User, create_tables
+from app.db.sql_connections import SessionLocal, User, create_tables, seed_categories
 from app.db.services.minio_connection import ensure_bucket
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,11 @@ def _wait_for_db(retries: int = 60, delay: int = 5) -> None:
     for attempt in range(1, retries + 1):
         try:
             create_tables()
+            db = SessionLocal()
+            try:
+                seed_categories(db)
+            finally:
+                db.close()
             return
         except Exception as e:
             log.warning("DB not ready (attempt %d/%d): %s", attempt, retries, e)

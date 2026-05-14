@@ -42,34 +42,30 @@ def _strip_cid(text: str) -> str:
     return re.sub(r"\(cid:\d+\)", "", text)
 
 
-def classify(text: str, mode: str = "keyword") -> dict:
+def classify(text: str, mode: str = "keyword",
+             enabled_categories: list[str] | None = None) -> dict:
     """
     Clasifica el texto de un PDF.
 
     mode="keyword"   → conteo directo de keywords por categoría (rápido)
-    mode="zero_shot" → modelo NLI distilbert-mnli (mayor precisión semántica)
+    mode="zero_shot" → sentence-transformers all-MiniLM-L6-v2 (mayor precisión semántica)
 
-    Devuelve:
-    {
-        "categories": [{"category": str, "score": float}, ...],
-        "title":   str | None,
-        "authors": str | None,
-        "year":    int | None,
-    }
+    enabled_categories: si se pasa, solo clasifica contra esas categorías.
+    Si es None, usa todas las categorías disponibles.
     """
     text = _strip_cid(text)
     clean = _clean_text(text)
 
     if mode == "zero_shot":
         try:
-            scores = _score_zero_shot(text)
+            scores = _score_zero_shot(text, enabled_categories)
             threshold = _ZERO_SHOT_THRESHOLD
         except Exception as exc:
             log.warning("Zero-shot falló, usando keyword como fallback: %s", exc)
-            scores = _score_keyword(clean)
+            scores = _score_keyword(clean, enabled_categories)
             threshold = _KEYWORD_THRESHOLD
     else:
-        scores = _score_keyword(clean)
+        scores = _score_keyword(clean, enabled_categories)
         threshold = _KEYWORD_THRESHOLD
 
     filtered = {cat: round(score, 4) for cat, score in scores.items() if score >= threshold}
@@ -95,14 +91,17 @@ def _clean_text(text: str) -> str:
     return text
 
 
-def _score_keyword(text: str) -> dict[str, float]:
+def _score_keyword(text: str,
+                   enabled_categories: list[str] | None = None) -> dict[str, float]:
     """
     Cuenta cuántas keywords de cada categoría aparecen en el texto.
     Normaliza por el total de keywords de la categoría.
-    No usa TF-IDF: evita que palabras diagnósticas queden penalizadas por IDF bajo.
+    Solo procesa las categorías en enabled_categories (o todas si es None).
     """
     scores: dict[str, float] = {}
     for cat, keywords in CATEGORIES.items():
+        if enabled_categories is not None and cat not in enabled_categories:
+            continue
         if not keywords:
             scores[cat] = 0.0
             continue
@@ -111,18 +110,30 @@ def _score_keyword(text: str) -> dict[str, float]:
     return scores
 
 
-def _score_zero_shot(text: str) -> dict[str, float]:
+def _score_zero_shot(text: str,
+                     enabled_categories: list[str] | None = None) -> dict[str, float]:
     """
     Usa sentence-transformers (all-MiniLM-L6-v2, 22MB) para clasificar
     mediante similitud coseno entre el texto y las descripciones de cada categoría.
-    Lanza excepción si el modelo falla (el caller maneja el fallback con el threshold correcto).
+    Solo evalúa las categorías en enabled_categories (o todas si es None).
+    Lanza excepción si el modelo falla (el caller maneja el fallback).
     """
     from sentence_transformers import util as st_util
     model, cat_embeddings = _get_st_model()
     snippet = text[:1500].strip()
     text_emb = model.encode(snippet, convert_to_tensor=True)
-    similarities = st_util.cos_sim(text_emb, cat_embeddings)[0].tolist()
-    return dict(zip(_CATEGORY_DESCRIPTIONS.keys(), similarities))
+
+    descriptions = _CATEGORY_DESCRIPTIONS
+    if enabled_categories is not None:
+        descriptions = {k: v for k, v in _CATEGORY_DESCRIPTIONS.items()
+                        if k in enabled_categories}
+
+    if not descriptions:
+        return {}
+
+    cat_embs = model.encode(list(descriptions.values()), convert_to_tensor=True)
+    similarities = st_util.cos_sim(text_emb, cat_embs)[0].tolist()
+    return dict(zip(descriptions.keys(), similarities))
 
 
 # ── Extracción de metadatos ────────────────────────────────────────────────────

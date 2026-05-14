@@ -7,7 +7,7 @@ import pika
 import pdfplumber
 from io import BytesIO
 
-from app.db.sql_connections import Document, DocumentCategory, SessionLocal, Setting
+from app.db.sql_connections import Category, Document, DocumentCategory, SessionLocal, Setting
 from app.db.services.minio_connection import get_client, BUCKET
 from worker.classifier import classify
 
@@ -28,6 +28,18 @@ def _get_classifier_mode() -> str:
         db.close()
 
 
+def _get_enabled_categories() -> list[str] | None:
+    db = SessionLocal()
+    try:
+        rows = db.query(Category).filter(Category.enabled.is_(True)).all()
+        # Si la tabla aún no existe o está vacía, devolver None para usar todas
+        return [r.name for r in rows] if rows else None
+    except Exception:
+        return None
+    finally:
+        db.close()
+
+
 def process(body: bytes) -> None:
     msg = json.loads(body)
     document_id = msg["document_id"]
@@ -44,8 +56,9 @@ def process(body: bytes) -> None:
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
 
-    # Clasificar con el modo configurado por el admin
-    result = classify(text, mode=_get_classifier_mode())
+    # Clasificar con el modo configurado y solo las categorías habilitadas
+    result = classify(text, mode=_get_classifier_mode(),
+                      enabled_categories=_get_enabled_categories())
 
     # Guardar en PostgreSQL
     db = SessionLocal()
