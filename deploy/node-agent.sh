@@ -27,6 +27,7 @@ STATE_DIR="/var/lib/pda-cluster"
 STATE_FILE="$STATE_DIR/state.json"
 CONFIG_FILE="$STATE_DIR/config.env"
 STATE_PORT=9999
+ANNOUNCE_PORT=9998
 MIN_NODES=3
 POLL=15          # segundos entre cada chequeo
 LOG_TAG="pda-agent"
@@ -59,11 +60,11 @@ ts_nodes() {
         | .[]
     ')
 
-    # Solo son candidatos los que responden en STATE_PORT (corren el agente)
+    # Solo son candidatos los que responden en ANNOUNCE_PORT (corren el agente)
     while IFS= read -r entry; do
         local ip; ip=$(echo "$entry" | jq -r '.ip')
         (
-            if curl -sf --max-time 3 "http://$ip:$STATE_PORT/" > /dev/null 2>&1; then
+            if curl -sf --max-time 3 "http://$ip:$ANNOUNCE_PORT/" > /dev/null 2>&1; then
                 echo "$entry" >> "$tmp"
             fi
         ) &
@@ -88,10 +89,11 @@ arr_to_json() {
 # Verifica si el JSON array $1 contiene la string $2.
 json_has() { jq -e --arg v "$2" 'contains([$v])' <<< "$1" > /dev/null 2>&1; }
 
-# Servidor mínimo que responde en STATE_PORT para que otros nodos nos detecten.
-# Se levanta en todos los nodos al arrancar. El manager lo reemplaza con serve_state().
+# Servidor de anuncio en ANNOUNCE_PORT — corre en todos los nodos siempre.
+# Permite que ts_nodes() detecte solo nodos que corren el agente,
+# sin interferir con el state server del manager en STATE_PORT.
 serve_announce() {
-    fuser -k "$STATE_PORT/tcp" 2>/dev/null || true
+    fuser -k "$ANNOUNCE_PORT/tcp" 2>/dev/null || true
     sleep 1
     python3 -c "
 import http.server, os
@@ -100,9 +102,9 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.end_headers()
     def log_message(self, *_): pass
 os.setpgrp()
-http.server.HTTPServer(('0.0.0.0', $STATE_PORT), H).serve_forever()
+http.server.HTTPServer(('0.0.0.0', $ANNOUNCE_PORT), H).serve_forever()
 " &
-    log "Announce server escuchando en :$STATE_PORT"
+    log "Announce server escuchando en :$ANNOUNCE_PORT"
 }
 
 # ── Estado compartido ─────────────────────────────────────
@@ -506,8 +508,9 @@ main() {
     my_ip=$(ts_self_ip)
     log "Nodo: $my_hn  |  IP Tailscale: $my_ip"
 
-    # Levantar announce server para que otros nodos nos detecten en STATE_PORT
+    # Levantar announce server para que otros nodos nos detecten en ANNOUNCE_PORT
     serve_announce
+    sleep 10  # dar tiempo a que otros nodos levanten su announce antes de probar
 
     # Esperar MIN_NODES nodos antes de elegir rol.
     # Esto garantiza que todos ven el mismo conjunto de nodos
