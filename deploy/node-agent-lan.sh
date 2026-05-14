@@ -275,7 +275,7 @@ mgr_init_db() {
             log "FastAPI reiniciado."
             return 0
         }
-        (( attempt++ ))
+        (( ++attempt ))
         log "Patroni aún no listo (intento $attempt/$max) — reintentando en 10s..."
         sleep 10
     done
