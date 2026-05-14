@@ -310,6 +310,23 @@ def list_user_documents(
     return user.documents
 
 
+@router.post("/admin/documents/{document_id}/retry", status_code=status.HTTP_202_ACCEPTED)
+def admin_retry_document(
+    document_id: int,
+    _: int = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    if doc.status == "processing":
+        raise HTTPException(status_code=409, detail="El documento ya está siendo procesado")
+    doc.status = "pending"
+    db.commit()
+    enqueue_pdf(document_id=doc.id, object_key=cast(str, doc.object_key))
+    return {"id": doc.id, "status": "pending"}
+
+
 @router.delete("/admin/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_document(
     document_id: int,
