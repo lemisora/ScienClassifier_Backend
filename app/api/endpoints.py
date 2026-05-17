@@ -27,6 +27,8 @@ from app.db.services.minio_connection import (
 from app.db.services.pdf_validator import validate_pdf
 from app.db.services.rabbitmq_connection import enqueue_pdf
 
+import socket
+
 router = APIRouter()
 
 
@@ -456,3 +458,12 @@ def _format_apa7(doc: Document) -> str:
     title = doc.title or doc.filename
     journal = doc.journal or "Sin fuente"
     return f"{authors} {year}. {title}. {journal}."
+
+
+@router.get("/diagnostico/whoami")
+def whoami():
+    # Retorna el ID del contenedor de la réplica de FastAPI
+    return {
+        "fastapi_worker_id": socket.gethostname(),
+        "status": "ok"
+    }
