@@ -27,6 +27,18 @@ if not primary:
     sys.exit(1)
 
 print(f"Primary encontrado: {primary}")
-psql(primary, superuser, superpass,
-     f"ALTER ROLE {admin} WITH LOGIN PASSWORD '{adminpass}';")
-print(f"Usuario '{admin}' habilitado correctamente.")
+
+sql_commands = (
+    f"ALTER ROLE {admin} WITH LOGIN PASSWORD '{adminpass}'; "
+    f"GRANT ALL PRIVILEGES ON DATABASE postgres TO {admin}; "
+    f"GRANT ALL ON SCHEMA public TO {admin}; "
+)
+
+print("Aplicando permisos de escritura en el esquema public...")
+result_grants = psql(primary, superuser, superpass, sql_commands)
+
+if result_grants.returncode == 0:
+    print("Permisos otorgados exitosamente. FastAPI ya puede crear tablas.")
+else:
+    print(f"Error al otorgar permisos: {result_grants.stderr}")
+    sys.exit(1)
